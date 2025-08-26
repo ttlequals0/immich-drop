@@ -4,7 +4,7 @@ services:
     container_name: immich-drop
     restart: unless-stopped
     ports:
-      - "8081:8080"
+      - "8080:8080"
 
     env_file:
       - ./.env
