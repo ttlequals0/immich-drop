@@ -13,6 +13,7 @@ A tiny, zero-login web app for collecting photos/videos into your **Immich** ser
 ---
 
 ## Table of contents
+- [Quick start](#Quick_start)
 - [Architecture](#architecture)
 - [Folder structure](#folder-structure)
 - [Requirements](#requirements)
@@ -25,6 +26,59 @@ A tiny, zero-login web app for collecting photos/videos into your **Immich** ser
 - [Development](#development)
 - [License](#license)
 
+---
+## Quick start
+Copy the docker-compose.yml and the .env file to a common folder,
+update the .env file before executing the CLI commands to quick start the container.
+### docker-compose.yml
+```
+version: "3.9"
+
+services:
+  immich-drop:
+    image: ghcr.io/nasogaa/immich-drop:latest
+    pull_policy: always
+    container_name: immich-drop
+    restart: unless-stopped
+
+    # Load all variables from your repo's .env (PORT, IMMICH_BASE_URL, IMMICH_API_KEY, etc.)
+    env_file:
+      - ./.env
+
+    # Expose the app on the same port as configured in .env (defaults to 8080)
+    ports:
+      - 8080:8080
+
+    # Persist local dedupe cache (state.db) across restarts
+    volumes:
+      - immich_drop_data:/data
+
+    # Simple healthcheck
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport os,urllib.request,sys; url=f\"http://127.0.0.1:{os.getenv('PORT','8080')}/\";\ntry: urllib.request.urlopen(url, timeout=3); sys.exit(0)\nexcept Exception: sys.exit(1)\nPY"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  immich_drop_data:
+```
+### .env 
+
+```
+HOST=0.0.0.0
+PORT=8080
+IMMICH_BASE_URL=http://REPLACE_ME:2283/api
+IMMICH_API_KEY=REPLACE_ME
+MAX_CONCURRENT=3
+STATE_DB=/data/state.db
+```
+### CLI
+```
+docker compose pull
+docker compose up -d
+```
 ---
 
 ## Architecture
