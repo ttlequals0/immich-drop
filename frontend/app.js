@@ -3,6 +3,29 @@ const sessionId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.ra
 let items = [];
 let socket;
 
+// --- Dark mode ---
+function initDarkMode() {
+  const stored = localStorage.getItem('theme');
+  if (stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+  updateThemeIcon();
+}
+
+function toggleDarkMode() {
+  const isDark = document.documentElement.classList.toggle('dark');
+  localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  updateThemeIcon();
+}
+
+function updateThemeIcon() {
+  const isDark = document.documentElement.classList.contains('dark');
+  document.getElementById('iconLight').classList.toggle('hidden', !isDark);
+  document.getElementById('iconDark').classList.toggle('hidden', isDark);
+}
+
+initDarkMode();
+
 // --- helpers ---
 function human(bytes){
   if (!bytes) return '0 B';
@@ -21,20 +44,20 @@ function addItem(file){
 function render(){
   const itemsEl = document.getElementById('items');
   itemsEl.innerHTML = items.map(it => `
-    <div class="rounded-2xl border bg-white p-4 shadow-sm">
+    <div class="rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 shadow-sm transition-colors">
       <div class="flex items-center justify-between">
         <div class="min-w-0">
-          <div class="truncate font-medium">${it.name} <span class="text-xs text-gray-500">(${human(it.size)})</span></div>
-          <div class="mt-1 text-xs text-gray-600">
+          <div class="truncate font-medium">${it.name} <span class="text-xs text-gray-500 dark:text-gray-400">(${human(it.size)})</span></div>
+          <div class="mt-1 text-xs text-gray-600 dark:text-gray-400">
             ${it.message ? `<span>${it.message}</span>` : ''}
           </div>
         </div>
         <div class="text-sm">${it.status}</div>
       </div>
-      <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+      <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
         <div class="h-full ${it.status==='done'?'bg-green-500':it.status==='duplicate'?'bg-amber-500':it.status==='error'?'bg-red-500':'bg-blue-500'}" style="width:${Math.max(it.progress, (it.status==='done'||it.status==='duplicate'||it.status==='error')?100:it.progress)}%"></div>
       </div>
-      <div class="mt-2 text-sm text-gray-600">
+      <div class="mt-2 text-sm text-gray-600 dark:text-gray-400">
         ${it.status==='uploading' ? `Uploading… ${it.progress}%` : it.status.charAt(0).toUpperCase()+it.status.slice(1)}
       </div>
     </div>
@@ -116,6 +139,7 @@ const btnClearAll = document.getElementById('btnClearAll');
 const btnPing = document.getElementById('btnPing');
 const pingStatus = document.getElementById('pingStatus');
 const banner = document.getElementById('topBanner');
+const btnTheme = document.getElementById('btnTheme');
 
 // --- Connection test with ephemeral banner ---
 btnPing.onclick = async () => {
@@ -126,9 +150,13 @@ btnPing.onclick = async () => {
     pingStatus.textContent = j.ok ? 'Connected' : 'No connection';
     pingStatus.className = 'ml-2 text-sm ' + (j.ok ? 'text-green-600' : 'text-red-600');
     if(j.ok){
-      banner.textContent = `Connected to Immich at ${j.base_url}`;
+      let bannerText = `Connected to Immich at ${j.base_url}`;
+      if(j.album_name) {
+        bannerText += ` | Uploading to album: "${j.album_name}"`;
+      }
+      banner.textContent = bannerText;
       banner.classList.remove('hidden');
-      setTimeout(() => banner.classList.add('hidden'), 3000);
+      setTimeout(() => banner.classList.add('hidden'), 4000);
     }
   }catch{
     pingStatus.textContent = 'No connection';
@@ -137,8 +165,8 @@ btnPing.onclick = async () => {
 };
 
 // --- Drag & drop (no click-to-open on touch) ---
-['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.add('border-blue-500','bg-blue-50'); }));
-['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.remove('border-blue-500','bg-blue-50'); }));
+['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.add('border-blue-500','bg-blue-50','dark:bg-blue-900','dark:bg-opacity-20'); }));
+['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.remove('border-blue-500','bg-blue-50','dark:bg-blue-900','dark:bg-opacity-20'); }));
 dz.addEventListener('drop', (e)=>{
   e.preventDefault();
   const files = Array.from(e.dataTransfer.files || []);
@@ -187,3 +215,6 @@ if (!isTouch) {
 // --- Clear buttons ---
 btnClearFinished.onclick = ()=>{ items = items.filter(i => !['done','duplicate'].includes(i.status)); render(); };
 btnClearAll.onclick = ()=>{ items = []; render(); };
+
+// --- Dark mode toggle ---
+btnTheme.onclick = toggleDarkMode;

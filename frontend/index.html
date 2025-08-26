@@ -5,32 +5,45 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Immich Drop Uploader</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class'
+    }
+  </script>
 </head>
-<body class="min-h-screen bg-gray-50 text-gray-900">
+<body class="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-200">
   <div class="mx-auto max-w-4xl p-6 space-y-6">
     <!-- Ephemeral top banner -->
-    <div id="topBanner" class="hidden rounded-2xl border border-green-200 bg-green-50 p-3 text-green-700 text-center"></div>
+    <div id="topBanner" class="hidden rounded-2xl border border-green-200 bg-green-50 p-3 text-green-700 text-center dark:bg-green-900 dark:border-green-700 dark:text-green-300"></div>
 
     <header class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold tracking-tight">Immich Drop Uploader</h1>
       <div class="flex items-center gap-2">
-        <button id="btnPing" class="rounded-xl border px-3 py-1 text-sm">Test connection</button>
-        <span id="pingStatus" class="ml-2 text-sm text-gray-500"></span>
+        <button id="btnTheme" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors" title="Toggle dark mode">
+          <svg id="iconLight" class="w-4 h-4 hidden" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"/>
+          </svg>
+          <svg id="iconDark" class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
+          </svg>
+        </button>
+        <button id="btnPing" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors">Test connection</button>
+        <span id="pingStatus" class="ml-2 text-sm text-gray-500 dark:text-gray-400"></span>
       </div>
     </header>
 
     <!-- Dropzone -->
-    <section id="dropzone" class="rounded-2xl border-2 border-dashed p-10 text-center bg-white">
+    <section id="dropzone" class="rounded-2xl border-2 border-dashed p-10 text-center bg-white dark:bg-gray-800 dark:border-gray-600 transition-colors">
       <div class="mx-auto h-12 w-12 opacity-70">
         <!-- upload icon -->
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 16V8m0 0l-3 3m3-3 3 3M4 16a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-1a1 1 0 1 0-2 0v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-1a1 1 0 1 0-2 0v1z"/></svg>
       </div>
       <p class="mt-3 font-medium">Drop images or videos here</p>
-      <p class="text-sm text-gray-600">...or</p>
+      <p class="text-sm text-gray-600 dark:text-gray-400">...or</p>
 
       <!-- Mobile-safe choose control: label wraps the hidden input -->
       <div class="mt-3 relative inline-block">
-        <label class="rounded-2xl bg-black text-white px-4 py-2 hover:opacity-90 cursor-pointer select-none">
+        <label class="rounded-2xl bg-black text-white dark:bg-white dark:text-black px-4 py-2 hover:opacity-90 cursor-pointer select-none transition-colors">
           Choose files
           <input id="fileInput"
                  type="file"
@@ -40,13 +53,13 @@
         </label>
       </div>
 
-      <div class="mt-4 text-sm text-gray-500">
+      <div class="mt-4 text-sm text-gray-500 dark:text-gray-400">
         We never show uploaded media and keep everything session-local. No account required.
       </div>
     </section>
 
     <!-- Queue summary -->
-    <section id="summary" class="rounded-2xl border bg-white p-4 shadow-sm">
+    <section id="summary" class="rounded-2xl border bg-white p-4 shadow-sm dark:bg-gray-800 dark:border-gray-700 transition-colors">
       <div class="flex items-center justify-between text-sm">
         <div class="flex gap-4">
           <span>Queued/Processing: <b id="countQueued">0</b></span>
@@ -56,8 +69,8 @@
           <span>Errors: <b id="countErr">0</b></span>
         </div>
         <div class="flex gap-2">
-          <button id="btnClearFinished" class="rounded-xl border px-3 py-1 text-sm">Clear finished</button>
-          <button id="btnClearAll" class="rounded-xl border px-3 py-1 text-sm">Clear all</button>
+          <button id="btnClearFinished" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600 dark:hover:bg-gray-700 hover:bg-gray-100 transition-colors">Clear finished</button>
+          <button id="btnClearAll" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600 dark:hover:bg-gray-700 hover:bg-gray-100 transition-colors">Clear all</button>
         </div>
       </div>
     </section>
@@ -65,7 +78,7 @@
     <!-- Items -->
     <section id="items" class="space-y-3"></section>
 
-    <footer class="pt-4 pb-10 text-center text-xs text-gray-500">
+    <footer class="pt-4 pb-10 text-center text-xs text-gray-500 dark:text-gray-400">
       Built for simple, account-less uploads to Immich. This page never lists media from the server and only shows your current session's items.
     </footer>
   </div>

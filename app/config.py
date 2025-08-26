@@ -14,6 +14,7 @@ class Settings:
     immich_base_url: str
     immich_api_key: str
     max_concurrent: int = 3
+    album_name: str = ""
 
     @property
     def normalized_base_url(self) -> str:
@@ -24,8 +25,9 @@ def load_settings() -> Settings:
     """Load settings from .env, applying defaults when absent."""
     base = os.getenv("IMMICH_BASE_URL", "http://127.0.0.1:2283/api")
     api_key = os.getenv("IMMICH_API_KEY", "")
+    album_name = os.getenv("IMMICH_ALBUM_NAME", "")
     try:
         maxc = int(os.getenv("MAX_CONCURRENT", "3"))
     except ValueError:
         maxc = 3
-    return Settings(immich_base_url=base, immich_api_key=api_key, max_concurrent=maxc)
+    return Settings(immich_base_url=base, immich_api_key=api_key, max_concurrent=maxc, album_name=album_name)

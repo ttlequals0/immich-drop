@@ -6,6 +6,9 @@ services:
     ports:
       - "8080:8080"
 
+    environment:
+      IMMICH_ALBUM_NAME: dead-drop
+
     env_file:
       - ./.env
 

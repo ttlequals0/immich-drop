@@ -53,6 +53,9 @@ app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 # Global settings (read-only at runtime)
 SETTINGS: Settings = load_settings()
 
+# Album cache
+ALBUM_ID: Optional[str] = None
+
 # ---------- DB (local dedupe cache) ----------
 
 def db_init() -> None:
@@ -143,12 +146,15 @@ class SessionHub:
 
     async def disconnect(self, session_id: str, ws: WebSocket) -> None:
         """Remove a socket from the hub and close it (best-effort)."""
-        try:
-            await ws.close()
-        finally:
-            if session_id in self.sessions and ws in self.sessions[session_id]:
-                self.sessions[session_id].remove(ws)
-                self._cleanup_closed(session_id)
+        if session_id in self.sessions and ws in self.sessions[session_id]:
+            self.sessions[session_id].remove(ws)
+            self._cleanup_closed(session_id)
+        # Only try to close if the connection is still open
+        if ws.client_state == WebSocketState.CONNECTED:
+            try:
+                await ws.close()
+            except Exception:
+                pass
 
 hub = SessionHub()
 
@@ -189,6 +195,78 @@ def read_exif_datetimes(file_bytes: bytes):
 def immich_headers() -> dict:
     """Headers for Immich API calls (keeps key server-side)."""
     return {"Accept": "application/json", "x-api-key": SETTINGS.immich_api_key}
+
+def get_or_create_album() -> Optional[str]:
+    """Get existing album by name or create a new one. Returns album ID or None."""
+    global ALBUM_ID
+    
+    # Skip if no album name configured
+    if not SETTINGS.album_name:
+        return None
+    
+    # Return cached album ID if already fetched
+    if ALBUM_ID:
+        return ALBUM_ID
+    
+    try:
+        # First, try to find existing album
+        url = f"{SETTINGS.normalized_base_url}/albums"
+        r = requests.get(url, headers=immich_headers(), timeout=10)
+        
+        if r.status_code == 200:
+            albums = r.json()
+            for album in albums:
+                if album.get("albumName") == SETTINGS.album_name:
+                    ALBUM_ID = album.get("id")
+                    print(f"Found existing album '{SETTINGS.album_name}' with ID: {ALBUM_ID}")
+                    return ALBUM_ID
+        
+        # Album doesn't exist, create it
+        create_url = f"{SETTINGS.normalized_base_url}/albums"
+        payload = {
+            "albumName": SETTINGS.album_name,
+            "description": "Auto-created album for Immich Drop uploads"
+        }
+        r = requests.post(create_url, headers={**immich_headers(), "Content-Type": "application/json"}, 
+                         json=payload, timeout=10)
+        
+        if r.status_code in (200, 201):
+            data = r.json()
+            ALBUM_ID = data.get("id")
+            print(f"Created new album '{SETTINGS.album_name}' with ID: {ALBUM_ID}")
+            return ALBUM_ID
+        else:
+            print(f"Failed to create album: {r.status_code} - {r.text}")
+    except Exception as e:
+        print(f"Error managing album: {e}")
+    
+    return None
+
+def add_asset_to_album(asset_id: str) -> bool:
+    """Add an asset to the configured album. Returns True on success."""
+    album_id = get_or_create_album()
+    if not album_id or not asset_id:
+        return False
+    
+    try:
+        url = f"{SETTINGS.normalized_base_url}/albums/{album_id}/assets"
+        payload = {"ids": [asset_id]}
+        r = requests.put(url, headers={**immich_headers(), "Content-Type": "application/json"}, 
+                        json=payload, timeout=10)
+        
+        if r.status_code == 200:
+            results = r.json()
+            # Check if any result indicates success
+            for result in results:
+                if result.get("success"):
+                    return True
+                elif result.get("error") == "duplicate":
+                    # Asset already in album, consider it success
+                    return True
+        return False
+    except Exception as e:
+        print(f"Error adding asset to album: {e}")
+        return False
 
 def immich_ping() -> bool:
     """Best-effort reachability check against a few Immich endpoints."""
@@ -236,7 +314,11 @@ async def index(_: Request) -> HTMLResponse:
 @app.post("/api/ping")
 async def api_ping() -> dict:
     """Connectivity test endpoint used by the UI to display a temporary banner."""
-    return {"ok": immich_ping(), "base_url": SETTINGS.normalized_base_url}
+    return {
+        "ok": immich_ping(), 
+        "base_url": SETTINGS.normalized_base_url,
+        "album_name": SETTINGS.album_name if SETTINGS.album_name else None
+    }
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
@@ -332,6 +414,12 @@ async def api_upload(
                 asset_id = data.get("id")
                 db_insert_upload(checksum, file.filename, size, device_asset_id, asset_id, created_iso)
                 status = data.get("status", "created")
+                
+                # Add to album if configured
+                if SETTINGS.album_name and asset_id:
+                    if add_asset_to_album(asset_id):
+                        status += f" (added to album '{SETTINGS.album_name}')"
+                
                 await send_progress(session_id, item_id, "duplicate" if status == "duplicate" else "done", 100, status, asset_id)
                 return JSONResponse({"id": asset_id, "status": status}, status_code=200)
             else:
