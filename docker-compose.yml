@@ -1,0 +1,22 @@
+services:
+  immich-drop:
+    build: .
+    container_name: immich-drop
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+
+    env_file:
+      - ./.env
+
+    volumes:
+      - immich_drop_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request,sys\ntry:\n  urllib.request.urlopen('http://localhost:8080/').read(); sys.exit(0)\nexcept Exception:\n  sys.exit(1)\nPY"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  immich_drop_data:
