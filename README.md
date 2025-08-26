@@ -43,7 +43,7 @@ version: "3.9"
 
 services:
   immich-drop:
-    image: ghcr.io/nasogaa/immich-drop:latest
+    image: ttlequals0/immich-drop:latest
     pull_policy: always
     container_name: immich-drop
     restart: unless-stopped
