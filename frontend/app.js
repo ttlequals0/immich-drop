@@ -111,10 +111,10 @@ function render(){
         </div>
       </div>
       <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
-        <div class="h-full ${it.status==='done'?'bg-green-500':it.status==='duplicate'?'bg-amber-500':it.status==='error'?'bg-red-500':'bg-blue-500'}" style="width:${Math.max(it.progress, (it.status==='done'||it.status==='duplicate'||it.status==='error')?100:it.progress)}%"></div>
+        <div class="h-full ${it.status==='done'?'bg-green-500':it.status==='duplicate'?'bg-amber-500':it.status==='error'?'bg-red-500':(it.status==='uploading' && it.progress >= 100)?'bg-green-500':'bg-blue-500'}" style="width:${Math.max(it.progress, (it.status==='done'||it.status==='duplicate'||it.status==='error')?100:it.progress)}%"></div>
       </div>
       <div class="mt-2 text-sm text-gray-600 dark:text-gray-400">
-        ${it.status==='uploading' ? `Uploading… ${it.progress}%` : it.status.charAt(0).toUpperCase()+it.status.slice(1)}
+        ${it.status==='uploading' ? (it.progress >= 100 ? 'Processing...' : `Uploading… ${it.progress}%`) : it.status.charAt(0).toUpperCase()+it.status.slice(1)}
       </div>
     </div>
   `).join('');
