@@ -1,1 +1,26 @@
 *.env
+agent.md
+
+# Python cache and build artifacts
+__pycache__/
+app/__pycache__/*
+*.py[cod]
+*.pyo
+*.so
+.mypy_cache/
+.pytest_cache/
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs and IDE
+.venv/
+.idea/
+.vscode/
+.DS_Store
+
+# Local data/dbs
+data/*.db
+data/*.sqlite
+data/*.sqlite3

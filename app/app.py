@@ -435,6 +435,7 @@ async def api_upload(
 
     return await do_upload()
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("backend.main:app", host=HOST, port=PORT, reload=True)
+"""
+Note: Do not run this module directly. Use `python main.py` from
+project root, which starts `uvicorn app.app:app` with reload.
+"""

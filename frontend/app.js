@@ -3,6 +3,10 @@ const sessionId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.ra
 let items = [];
 let socket;
 
+// Status precedence: never regress (e.g., uploading -> done shouldn't go back to uploading)
+const STATUS_ORDER = { queued: 0, checking: 1, uploading: 2, duplicate: 3, done: 3, error: 4 };
+const FINAL_STATES = new Set(['done','duplicate','error']);
+
 // --- Dark mode ---
 function initDarkMode() {
   const stored = localStorage.getItem('theme');
@@ -87,9 +91,24 @@ function openSocket(){
     const { item_id, status, progress, message } = msg;
     const it = items.find(x => x.id===item_id);
     if(!it) return;
-    it.status = status;
-    if(typeof progress==='number') it.progress = progress;
-    if(message) it.message = message;
+    // If we've already finalized this item, ignore late/regressive updates
+    if (FINAL_STATES.has(it.status)) return;
+
+    const cur = STATUS_ORDER[it.status] ?? 0;
+    const inc = STATUS_ORDER[status] ?? 0;
+    if (inc < cur) {
+      // ignore regressive status updates
+    } else {
+      it.status = status;
+    }
+    if (typeof progress==='number') {
+      // never decrease progress
+      it.progress = Math.max(it.progress || 0, progress);
+    }
+    if (message) it.message = message;
+    if (FINAL_STATES.has(it.status)) {
+      it.progress = 100;
+    }
     render();
   };
   socket.onclose = () => setTimeout(openSocket, 2000);
@@ -118,6 +137,15 @@ async function runQueue(){
         next.status='error';
         next.message = body.error || 'Upload failed';
         render();
+      } else if (res.ok) {
+        // Fallback finalize on HTTP success in case WS final message is missed
+        const statusText = (body && body.status) ? String(body.status) : '';
+        const isDuplicate = /duplicate/i.test(statusText);
+        next.status = isDuplicate ? 'duplicate' : 'done';
+        next.message = statusText || (isDuplicate ? 'Duplicate' : 'Uploaded');
+        next.progress = 100;
+        render();
+        try { showBanner(isDuplicate ? `Duplicate: ${next.name}` : `Uploaded: ${next.name}`, isDuplicate ? 'warn' : 'ok'); } catch {}
       }
     }catch(err){
       next.status='error';
@@ -141,6 +169,20 @@ const pingStatus = document.getElementById('pingStatus');
 const banner = document.getElementById('topBanner');
 const btnTheme = document.getElementById('btnTheme');
 
+// --- Simple banner helper ---
+function showBanner(text, kind='ok'){
+  if(!banner) return;
+  banner.textContent = text;
+  // reset classes and apply based on kind
+  banner.className = 'rounded-2xl p-3 text-center transition-colors ' + (
+    kind==='ok' ? 'border border-green-200 bg-green-50 text-green-700 dark:bg-green-900 dark:border-green-700 dark:text-green-300'
+    : kind==='warn' ? 'border border-amber-200 bg-amber-50 text-amber-700 dark:bg-amber-900 dark:border-amber-700 dark:text-amber-300'
+    : 'border border-red-200 bg-red-50 text-red-700 dark:bg-red-900 dark:border-red-700 dark:text-red-300'
+  );
+  banner.classList.remove('hidden');
+  setTimeout(() => banner.classList.add('hidden'), 3000);
+}
+
 // --- Connection test with ephemeral banner ---
 btnPing.onclick = async () => {
   pingStatus.textContent = 'checking…';
@@ -154,9 +196,7 @@ btnPing.onclick = async () => {
       if(j.album_name) {
         bannerText += ` | Uploading to album: "${j.album_name}"`;
       }
-      banner.textContent = bannerText;
-      banner.classList.remove('hidden');
-      setTimeout(() => banner.classList.add('hidden'), 4000);
+      showBanner(bannerText, 'ok');
     }
   }catch{
     pingStatus.textContent = 'No connection';

@@ -43,7 +43,7 @@ version: "3.9"
 
 services:
   immich-drop:
-    image: ttlequals0/immich-drop:latest
+    image: ghcr.io/nasogaa/immich-drop:latest
     pull_policy: always
     container_name: immich-drop
     restart: unless-stopped
@@ -165,11 +165,12 @@ PORT=8080
 
 # Immich connection (include /api)
 IMMICH_BASE_URL=http://REPLACE_ME:2283/api
-IMMICH_API_KEY=REPLACE_ME
+IMMICH_API_KEY=ADD-YOUR-API-KEY   #key needs asset.upload (default functions)
+
 MAX_CONCURRENT=3
 
 # Optional: Album name for auto-adding uploads (creates if doesn't exist)
-IMMICH_ALBUM_NAME=dead-drop
+IMMICH_ALBUM_NAME=dead-drop       #key needs album.create,album.read,albumAsset.create (extended functions)
 
 # Local dedupe cache
 STATE_DB=./data/state.db         # local dev -> ./state.db (data folder is created in docker image)
