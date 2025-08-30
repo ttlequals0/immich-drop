@@ -253,8 +253,18 @@ if (!isTouch) {
 }
 
 // --- Clear buttons ---
-btnClearFinished.onclick = ()=>{ items = items.filter(i => !['done','duplicate'].includes(i.status)); render(); };
-btnClearAll.onclick = ()=>{ items = []; render(); };
+btnClearFinished.onclick = ()=>{
+  items = items.filter(i => !['done','duplicate'].includes(i.status));
+  render();
+  // also tell server to refresh album cache so a renamed album triggers a new one
+  fetch('/api/album/reset', { method: 'POST' }).catch(()=>{});
+};
+btnClearAll.onclick = ()=>{
+  items = [];
+  render();
+  // also reset album cache server-side
+  fetch('/api/album/reset', { method: 'POST' }).catch(()=>{});
+};
 
 // --- Dark mode toggle ---
 btnTheme.onclick = toggleDarkMode;

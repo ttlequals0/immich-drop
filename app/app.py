@@ -56,6 +56,11 @@ SETTINGS: Settings = load_settings()
 # Album cache
 ALBUM_ID: Optional[str] = None
 
+def reset_album_cache() -> None:
+    """Invalidate the cached Immich album id so next use re-resolves it."""
+    global ALBUM_ID
+    ALBUM_ID = None
+
 # ---------- DB (local dedupe cache) ----------
 
 def db_init() -> None:
@@ -330,6 +335,10 @@ async def ws_endpoint(ws: WebSocket) -> None:
         session_id = data.get("session_id") or "default"
     except Exception:
         session_id = "default"
+    # If this is the first socket for a (possibly new) session, reset album cache
+    # so a freshly opened page can rotate the drop album by renaming the old one.
+    if session_id not in hub.sessions:
+        reset_album_cache()
     await hub.connect(session_id, ws)
 
     # keepalive to avoid proxy idle timeouts
@@ -434,6 +443,12 @@ async def api_upload(
             return JSONResponse({"error": str(e)}, status_code=500)
 
     return await do_upload()
+
+@app.post("/api/album/reset")
+async def api_album_reset() -> dict:
+    """Explicit trigger from the UI to clear cached album id."""
+    reset_album_cache()
+    return {"ok": True}
 
 """
 Note: Do not run this module directly. Use `python main.py` from
