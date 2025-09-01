@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Menu – Immich Drop</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+  </script>
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+  <div class="mx-auto max-w-2xl p-6 space-y-6">
+    <div id="topBanner" class="hidden rounded-2xl border border-green-200 bg-green-50 p-3 text-green-700 text-center dark:bg-green-900 dark:border-green-700 dark:text-green-300"></div>
+    <header class="flex items-center justify-between">
+      <h1 class="text-2xl font-semibold">Create Upload Link</h1>
+      <div class="flex items-center gap-2">
+        <a id="linkPublicUploader" href="/" class="hidden rounded-xl border px-3 py-1 text-sm dark:border-gray-600">Public uploader</a>
+        <a href="/logout" id="btnLogout" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600">Logout</a>
+        <button id="btnTheme" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600" title="Toggle dark mode">
+          <svg id="iconLight" class="w-4 h-4 hidden" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414z" clip-rule="evenodd"/>
+          </svg>
+          <svg id="iconDark" class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
+          </svg>
+        </button>
+        <button id="btnPing" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600">Test connection</button>
+        <span id="pingStatus" class="ml-2 text-sm text-gray-500 dark:text-gray-400"></span>
+      </div>
+    </header>
+
+    <section class="rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 space-y-3">
+      <div>
+        <div class="text-sm font-medium mb-1">Target album</div>
+        <div id="albumControls" class="space-y-2">
+          <div id="albumSelectWrap" class="hidden">
+            <select id="albumSelect" class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700"></select>
+          </div>
+          <div id="albumInputWrap" class="hidden">
+            <input id="albumInput" placeholder="Album name" class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700" />
+            <button id="btnCreateAlbum" class="mt-2 rounded-xl bg-black text-white px-3 py-1 dark:bg-white dark:text-black">Create album</button>
+          </div>
+          <div id="albumHint" class="text-sm text-gray-500"></div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <div class="text-sm font-medium mb-1">Usage</div>
+          <select id="usage" class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700">
+            <option value="1">One-time</option>
+            <option value="-1">Indefinite</option>
+          </select>
+        </div>
+        <div>
+          <div class="text-sm font-medium mb-1">Expires in days</div>
+          <input id="days" type="number" min="0" placeholder="Leave empty for no expiry" class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700" />
+        </div>
+      </div>
+      <div>
+        <button id="btnCreate" class="rounded-xl bg-black text-white px-4 py-2 dark:bg-white dark:text-black">Create link</button>
+      </div>
+      <div id="result" class="hidden rounded-xl border p-3 text-sm space-y-2">
+        <div id="linkRow" class="flex items-center gap-2">
+          <input id="linkOut" class="flex-1 rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700" readonly />
+          <button id="btnCopy" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600">Copy</button>
+        </div>
+        <div>
+          <img id="qrImg" alt="QR" class="h-40 w-40" />
+        </div>
+      </div>
+    </section>
+
+    <section class="text-xs text-gray-500">
+      If album listing or creation is forbidden by your token, specify a fixed album in the .env file as IMMICH_ALBUM_NAME.
+    </section>
+  </div>
+
+  <script src="/static/header.js"></script>
+  <script>
+    const albumSelectWrap = document.getElementById('albumSelectWrap');
+    const albumSelect = document.getElementById('albumSelect');
+    const albumInputWrap = document.getElementById('albumInputWrap');
+    const albumInput = document.getElementById('albumInput');
+    const albumHint = document.getElementById('albumHint');
+    const btnCreateAlbum = document.getElementById('btnCreateAlbum');
+    const btnCreate = document.getElementById('btnCreate');
+    const usage = document.getElementById('usage');
+    const days = document.getElementById('days');
+    const result = document.getElementById('result');
+    const btnLogout = document.getElementById('btnLogout');
+    const btnTheme = document.getElementById('btnTheme');
+    const btnPing = document.getElementById('btnPing');
+    const pingStatus = document.getElementById('pingStatus');
+    const linkOut = document.getElementById('linkOut');
+    const btnCopy = document.getElementById('btnCopy');
+    const qrImg = document.getElementById('qrImg');
+
+    function showResult(kind, text){
+      result.className = 'rounded-xl border p-3 text-sm space-y-2 ' + (kind==='ok' ? 'border-green-200 bg-green-50 text-green-700 dark:bg-green-900 dark:border-green-700 dark:text-green-300' : 'border-red-200 bg-red-50 text-red-700 dark:bg-red-900 dark:border-red-700 dark:text-red-300');
+      result.classList.remove('hidden');
+    }
+
+    async function loadAlbums(){
+      try {
+        const r = await fetch('/api/albums');
+        if (r.status === 403) {
+          albumHint.textContent = 'Listing albums is forbidden with current credentials. Using .env IMMICH_ALBUM_NAME if set.';
+          albumInputWrap.classList.remove('hidden');
+          return;
+        }
+        const list = await r.json();
+        if (Array.isArray(list)){
+          albumSelect.innerHTML = list.map(a => `<option value="${a.id}">${a.albumName || a.title || a.id}</option>`).join('');
+          albumSelectWrap.classList.remove('hidden');
+          albumInputWrap.classList.remove('hidden');
+          albumHint.textContent = 'Pick an existing album, or type a new name and click Create album.';
+        }
+      } catch (e) {
+        albumHint.textContent = 'Failed to load albums.';
+      }
+    }
+
+    btnCreateAlbum.onclick = async () => {
+      const name = albumInput.value.trim();
+      if (!name) return;
+      try{
+        const r = await fetch('/api/albums', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify({ name }) });
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok){ showResult('err', j.error || 'Album create failed'); return; }
+        showResult('ok', `Album created: ${j.albumName || j.id || name}`);
+        try { await loadAlbums(); } catch {}
+      }catch(err){ showResult('err', String(err)); }
+    };
+
+    btnCreate.onclick = async () => {
+      let albumId = null, albumName = null;
+      if (!albumSelectWrap.classList.contains('hidden') && albumSelect.value) {
+        albumId = albumSelect.value;
+      } else if (albumInput.value.trim()) {
+        albumName = albumInput.value.trim();
+      }
+      const payload = { maxUses: parseInt(usage.value, 10) };
+      const d = days.value.trim();
+      if (d) payload.expiresDays = parseInt(d, 10);
+      if (albumId) payload.albumId = albumId; else if (albumName) payload.albumName = albumName;
+      try{
+        const r = await fetch('/api/invites', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(payload) });
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok){ showResult('err', j.error || 'Failed to create link'); return; }
+        const link = j.absoluteUrl || (location.origin + j.url);
+        showResult('ok', '');
+        linkOut.value = link;
+        // Build QR via backend PNG generator (no external libs)
+        qrImg.src = `/api/qr?text=${encodeURIComponent(link)}`;
+      }catch(err){ showResult('err', String(err)); }
+    };
+
+    // Logout handled via plain link to /logout (clears session + redirects)
+    btnCopy.onclick = async ()=>{
+      try { await navigator.clipboard.writeText(linkOut.value); btnCopy.textContent = 'Copied'; setTimeout(()=>btnCopy.textContent='Copy', 1200); } catch {}
+    };
+    // header.js wires theme + ping and shows banner consistently
+    
+    loadAlbums();
+  </script>
+</body>
+</html>

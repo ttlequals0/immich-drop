@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login – Immich Drop</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+  </script>
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+  <div class="mx-auto max-w-2xl p-6 space-y-6">
+    <div id="topBanner" class="hidden rounded-2xl border border-green-200 bg-green-50 p-3 text-green-700 text-center dark:bg-green-900 dark:border-green-700 dark:text-green-300"></div>
+    <header class="flex items-center justify-between">
+      <h1 class="text-2xl font-semibold">Login to Immich</h1>
+      <div class="flex items-center gap-2">
+        <a id="linkPublicUploader" href="/" class="hidden rounded-xl border px-3 py-1 text-sm dark:border-gray-600">Public uploader</a>
+        <button id="btnTheme" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600" title="Toggle dark mode">
+          <svg id="iconLight" class="w-4 h-4 hidden" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414z" clip-rule="evenodd"/>
+          </svg>
+          <svg id="iconDark" class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
+          </svg>
+        </button>
+        <button id="btnPing" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600">Test connection</button>
+        <span id="pingStatus" class="ml-2 text-sm text-gray-500 dark:text-gray-400"></span>
+      </div>
+    </header>
+    <div class="max-w-md">
+    <h2 class="text-lg font-medium mb-2">Enter your credentials</h2>
+    <div id="msg" class="hidden mb-3 rounded-lg border p-2 text-sm"></div>
+    <form id="loginForm" class="space-y-3">
+      <div>
+        <label class="block text-sm mb-1">Email</label>
+        <input id="email" type="email" required class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-800 dark:border-gray-700" />
+      </div>
+      <div>
+        <label class="block text-sm mb-1">Password</label>
+        <input id="password" type="password" required class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-800 dark:border-gray-700" />
+      </div>
+      <div class="flex items-center justify-between">
+        <button class="rounded-xl bg-black text-white px-4 py-2 dark:bg-white dark:text-black" type="submit">Login</button>
+        <a href="/" class="text-sm text-gray-500">Back to uploader</a>
+      </div>
+    </form>
+    </div>
+  </div>
+  <script src="/static/header.js"></script>
+  <script>
+    const form = document.getElementById('loginForm');
+    const msg = document.getElementById('msg');
+    function show(kind, text){
+      msg.textContent = text;
+      msg.className = 'mb-3 rounded-lg border p-2 text-sm ' + (kind==='ok' ? 'border-green-200 bg-green-50 text-green-700 dark:bg-green-900 dark:border-green-700 dark:text-green-300' : 'border-red-200 bg-red-50 text-red-700 dark:bg-red-900 dark:border-red-700 dark:text-red-300');
+      msg.classList.remove('hidden');
+    }
+    form.onsubmit = async (e)=>{
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      try{
+        const r = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify({email, password}) });
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok){ show('err', j.error || 'Login failed'); return; }
+        show('ok', 'Login successful. Redirecting…');
+        setTimeout(()=>{ location.href = '/menu'; }, 500);
+      }catch(err){ show('err', String(err)); }
+    };
+    // header.js wires theme + ping and provides consistent banner behavior
+  </script>
+</body>
+</html>

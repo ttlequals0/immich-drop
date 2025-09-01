@@ -1,5 +1,13 @@
 // Frontend logic (mobile-safe picker; no settings UI)
 const sessionId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2));
+// Detect invite token from URL path /invite/{token}
+let INVITE_TOKEN = null;
+try {
+  const parts = (window.location.pathname || '').split('/').filter(Boolean);
+  if (parts[0] === 'invite' && parts[1]) {
+    INVITE_TOKEN = parts[1];
+  }
+} catch {}
 let items = [];
 let socket;
 
@@ -24,8 +32,10 @@ function toggleDarkMode() {
 
 function updateThemeIcon() {
   const isDark = document.documentElement.classList.contains('dark');
-  document.getElementById('iconLight').classList.toggle('hidden', !isDark);
-  document.getElementById('iconDark').classList.toggle('hidden', isDark);
+  const light = document.getElementById('iconLight');
+  const dark = document.getElementById('iconDark');
+  if (light && light.classList) light.classList.toggle('hidden', !isDark);
+  if (dark && dark.classList) dark.classList.toggle('hidden', isDark);
 }
 
 initDarkMode();
@@ -131,6 +141,7 @@ async function runQueue(){
       form.append('item_id', next.id);
       form.append('session_id', sessionId);
       form.append('last_modified', next.file.lastModified || '');
+      if (INVITE_TOKEN) form.append('invite_token', INVITE_TOKEN);
       const res = await fetch('/api/upload', { method:'POST', body: form });
       const body = await res.json().catch(()=>({}));
       if(!res.ok && next.status!=='error'){
@@ -184,7 +195,7 @@ function showBanner(text, kind='ok'){
 }
 
 // --- Connection test with ephemeral banner ---
-btnPing.onclick = async () => {
+if (btnPing) btnPing.onclick = async () => {
   pingStatus.textContent = 'checking…';
   try{
     const r = await fetch('/api/ping', { method:'POST' });
@@ -203,6 +214,21 @@ btnPing.onclick = async () => {
     pingStatus.className='ml-2 text-sm text-red-600';
   }
 };
+
+// If on invite page, fetch invite info and show context banner
+(async function initInviteBanner(){
+  if (!INVITE_TOKEN) return;
+  try {
+    const r = await fetch(`/api/invite/${INVITE_TOKEN}`);
+    if (!r.ok) return;
+    const j = await r.json();
+    const parts = [];
+    if (j.albumName) parts.push(`Uploading to album: "${j.albumName}"`);
+    if (j.expiresAt) parts.push(`Expires: ${new Date(j.expiresAt).toLocaleString()}`);
+    if (typeof j.remaining === 'number') parts.push(`Uses left: ${j.remaining}`);
+    if (parts.length) showBanner(parts.join(' | '), 'ok');
+  } catch {}
+})();
 
 // --- Drag & drop (no click-to-open on touch) ---
 ['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.add('border-blue-500','bg-blue-50','dark:bg-blue-900','dark:bg-opacity-20'); }));
@@ -267,4 +293,4 @@ btnClearAll.onclick = ()=>{
 };
 
 // --- Dark mode toggle ---
-btnTheme.onclick = toggleDarkMode;
+if (btnTheme) btnTheme.onclick = toggleDarkMode;
