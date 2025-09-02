@@ -7,10 +7,15 @@ services:
       - "8080:8080"
 
     environment:
+      #immich drop server ip
+      PUBLIC_BASE_URL: http://192.168.8.60:8080
+      # Immich connection
+      IMMICH_BASE_URL: http://192.168.8.60:2283/api
+      IMMICH_API_KEY: n7lO2oRFVhMXqI10YL8nfelIC9lZ8ND8AxZqx1XHiA
+      #Enable/Disable Public upload page to folder
+      PUBLIC_UPLOAD_PAGE_ENABLED: false
       IMMICH_ALBUM_NAME: dead-drop
 
-    env_file:
-      - ./.env
 
     volumes:
       - immich_drop_data:/data

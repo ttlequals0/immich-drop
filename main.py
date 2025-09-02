@@ -11,6 +11,6 @@ if __name__ == "__main__":
         load_dotenv()
     except Exception:
         pass
-    host = os.getenv("HOST", "127.0.0.1")
+    host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8080"))
     uvicorn.run("app.app:app", host=host, port=port, reload=True)

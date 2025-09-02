@@ -356,6 +356,15 @@ async def menu_page(request: Request) -> HTMLResponse:
         return RedirectResponse(url="/login")
     return FileResponse(os.path.join(FRONTEND_DIR, "menu.html"))
 
+@app.get("/favicon.ico")
+async def favicon() -> Response:
+    """Serve favicon from /static/favicon.png if present (avoids 404 noise)."""
+    path = os.path.join(FRONTEND_DIR, "favicon.png")
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return Response(content=f.read(), media_type="image/png")
+    return Response(status_code=204)
+
 @app.post("/api/ping")
 async def api_ping() -> dict:
     """Connectivity test endpoint used by the UI to display a temporary banner."""

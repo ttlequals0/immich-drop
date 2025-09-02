@@ -15,11 +15,11 @@ class Settings:
     """App settings loaded from environment variables (.env)."""
     immich_base_url: str
     immich_api_key: str
-    max_concurrent: int = 3
+    max_concurrent: int
     album_name: str = ""
     public_upload_page_enabled: bool = False
     public_base_url: str = ""
-    state_db: str = "./state.db"
+    state_db: str = ""
     session_secret: str = ""
     log_level: str = "INFO"
 
@@ -48,7 +48,7 @@ def load_settings() -> Settings:
         maxc = int(os.getenv("MAX_CONCURRENT", "3"))
     except ValueError:
         maxc = 3
-    state_db = os.getenv("STATE_DB", "./state.db")
+    state_db = os.getenv("STATE_DB", "/data/state.db")
     session_secret = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     return Settings(
