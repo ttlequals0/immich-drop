@@ -54,9 +54,6 @@ services:
 
     # Configure all settings here (no .env required)
     environment:
-      # Server (container port is 8080 by default)
-      HOST: 0.0.0.0
-      PORT: 8080
 
       # Immich connection (must include /api)
       IMMICH_BASE_URL: https://immich.example.com/api
