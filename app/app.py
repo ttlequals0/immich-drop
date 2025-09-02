@@ -493,26 +493,42 @@ async def api_upload(
         except Exception:
             max_uses_int = -1
         if max_uses_int == 1:
-            if claimed and claimed_by_session and claimed_by_session != session_id:
-                await send_progress(session_id, item_id, "error", 100, "Invite already used")
-                return JSONResponse({"error": "invite_claimed"}, status_code=403)
-            # Atomically claim the one-time invite to prevent concurrent use
-            try:
-                connc = sqlite3.connect(SETTINGS.state_db)
-                curc = connc.cursor()
-                curc.execute(
-                    "UPDATE invites SET claimed = 1, claimed_at = CURRENT_TIMESTAMP, claimed_by_session = ? WHERE token = ? AND (claimed IS NULL OR claimed = 0)",
-                    (session_id, invite_token)
-                )
-                connc.commit()
-                changed = connc.total_changes
-                connc.close()
-                if changed == 0 and (claimed_by_session or claimed):
+            # Already claimed?
+            if claimed:
+                # Allow same session to continue; block different sessions
+                if claimed_by_session and claimed_by_session != session_id:
                     await send_progress(session_id, item_id, "error", 100, "Invite already used")
                     return JSONResponse({"error": "invite_claimed"}, status_code=403)
-            except Exception as e:
-                logger.exception("Invite claim failed: %s", e)
-                return JSONResponse({"error": "invite_claim_failed"}, status_code=500)
+                # claimed by same session (or unknown): allow
+            else:
+                # Atomically claim the one-time invite to prevent concurrent use
+                try:
+                    connc = sqlite3.connect(SETTINGS.state_db)
+                    curc = connc.cursor()
+                    curc.execute(
+                        "UPDATE invites SET claimed = 1, claimed_at = CURRENT_TIMESTAMP, claimed_by_session = ? WHERE token = ? AND (claimed IS NULL OR claimed = 0)",
+                        (session_id, invite_token)
+                    )
+                    connc.commit()
+                    changed = connc.total_changes
+                    connc.close()
+                except Exception as e:
+                    logger.exception("Invite claim failed: %s", e)
+                    return JSONResponse({"error": "invite_claim_failed"}, status_code=500)
+                if changed == 0:
+                    # Someone else just claimed; re-check owner
+                    try:
+                        conn2 = sqlite3.connect(SETTINGS.state_db)
+                        cur2 = conn2.cursor()
+                        cur2.execute("SELECT claimed_by_session FROM invites WHERE token = ?", (invite_token,))
+                        owner_row = cur2.fetchone()
+                        conn2.close()
+                        owner = owner_row[0] if owner_row else None
+                    except Exception:
+                        owner = None
+                    if not owner or owner != session_id:
+                        await send_progress(session_id, item_id, "error", 100, "Invite already used")
+                        return JSONResponse({"error": "invite_claimed"}, status_code=403)
         else:
             # Usage check for multi-use (max_uses < 0 => indefinite)
             if (used_count or 0) >= (max_uses_int if max_uses_int >= 0 else 10**9):
