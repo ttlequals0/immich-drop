@@ -63,7 +63,7 @@
       <div id="result" class="hidden rounded-xl border p-3 text-sm space-y-2">
         <div id="linkRow" class="flex items-center gap-2">
           <input id="linkOut" class="flex-1 rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700" readonly />
-          <button id="btnCopy" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600">Copy</button>
+          <button id="btnCopy" type="button" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600">Copy</button>
         </div>
         <div>
           <img id="qrImg" alt="QR" class="h-40 w-40" />
@@ -157,8 +157,17 @@
     };
 
     // Logout handled via plain link to /logout (clears session + redirects)
-    btnCopy.onclick = async ()=>{
-      try { await navigator.clipboard.writeText(linkOut.value); btnCopy.textContent = 'Copied'; setTimeout(()=>btnCopy.textContent='Copy', 1200); } catch {}
+    btnCopy.onclick = ()=>{
+      const text = linkOut.value || '';
+      if (!text) return;
+      const flash = ()=>{ btnCopy.textContent='Copied'; setTimeout(()=>btnCopy.textContent='Copy', 1200); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(flash).catch(()=>{
+          try{ const ta=document.createElement('textarea'); ta.value=text; ta.setAttribute('readonly',''); ta.style.position='absolute'; ta.style.left='-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); flash(); }catch{}
+        });
+      } else {
+        try{ const ta=document.createElement('textarea'); ta.value=text; ta.setAttribute('readonly',''); ta.style.position='absolute'; ta.style.left='-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); flash(); }catch{}
+      }
     };
     // header.js wires theme + ping and shows banner consistently
     
