@@ -72,13 +72,19 @@
     </section>
 
     <section id="summary" class="rounded-2xl border bg-white p-4 shadow-sm dark:bg-gray-800 dark:border-gray-700">
-      <div class="flex items-center justify-between text-sm">
-        <div class="flex gap-4">
-          <span>Queued/Processing: <b id="countQueued">0</b></span>
-          <span>Uploading: <b id="countUploading">0</b></span>
-          <span>Done: <b id="countDone">0</b></span>
-          <span>Duplicates: <b id="countDup">0</b></span>
-          <span>Errors: <b id="countErr">0</b></span>
+      <div class="flex flex-wrap items-end justify-between gap-2 text-sm">
+        <!-- Buttons: ensure present on invite page and visible on small screens -->
+        <div class="order-1 w-full md:order-2 md:w-auto flex gap-2 justify-end">
+          <button id="btnClearFinished" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600 dark:hover:bg-gray-700 hover:bg-gray-100 transition-colors">Clear finished</button>
+          <button id="btnClearAll" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600 dark:hover:bg-gray-700 hover:bg-gray-100 transition-colors">Clear all</button>
+        </div>
+        <!-- Counters: wrap cleanly, keep number with its label and align bottoms -->
+        <div class="order-2 w-full md:order-1 md:w-auto flex flex-wrap items-end gap-x-4 gap-y-1">
+          <span class="whitespace-nowrap">Queued/Processing: <b id="countQueued">0</b></span>
+          <span class="whitespace-nowrap">Uploading: <b id="countUploading">0</b></span>
+          <span class="whitespace-nowrap">Done: <b id="countDone">0</b></span>
+          <span class="whitespace-nowrap">Duplicates: <b id="countDup">0</b></span>
+          <span class="whitespace-nowrap">Errors: <b id="countErr">0</b></span>
         </div>
       </div>
     </section>

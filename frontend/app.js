@@ -66,7 +66,10 @@ function render(){
             ${it.message ? `<span>${it.message}</span>` : ''}
           </div>
         </div>
-        <div class="text-sm">${it.status}</div>
+        <div class="flex items-center gap-2 text-sm">
+          <span>${it.status}</span>
+          ${it.status==='error' ? `<button class="btnRetry rounded-xl border px-3 py-1 text-xs dark:border-gray-600 dark:hover:bg-gray-700 hover:bg-gray-100 transition-colors" data-id="${it.id}" aria-label="Retry upload">Retry</button>` : ''}
+        </div>
       </div>
       <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
         <div class="h-full ${it.status==='done'?'bg-green-500':it.status==='duplicate'?'bg-amber-500':it.status==='error'?'bg-red-500':'bg-blue-500'}" style="width:${Math.max(it.progress, (it.status==='done'||it.status==='duplicate'||it.status==='error')?100:it.progress)}%"></div>
@@ -76,6 +79,23 @@ function render(){
       </div>
     </div>
   `).join('');
+
+  // Attach retry handlers for errored items
+  try {
+    itemsEl.querySelectorAll('.btnRetry').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const id = btn.getAttribute('data-id');
+        const it = items.find(x => x.id === id);
+        if (!it) return;
+        it.status = 'queued';
+        it.progress = 0;
+        try { delete it.message; } catch {}
+        render();
+        runQueue();
+      });
+    });
+  } catch {}
 
   const c = {queued:0,uploading:0,done:0,dup:0,err:0};
   for(const it of items){
