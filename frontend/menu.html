@@ -31,16 +31,16 @@
       </div>
     </header>
 
-    <section class="rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 space-y-3">
+    <section class="rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 space-y-4">
       <div>
         <div class="text-sm font-medium mb-1">Target album</div>
         <div id="albumControls" class="space-y-2">
           <div id="albumSelectWrap" class="hidden">
-            <select id="albumSelect" class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700"></select>
+            <select id="albumSelect" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700"></select>
           </div>
           <div id="albumInputWrap" class="hidden">
-            <input id="albumInput" placeholder="Album name" class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700" />
-            <button id="btnCreateAlbum" class="mt-2 rounded-xl bg-black text-white px-3 py-1 dark:bg-white dark:text-black">Create album</button>
+            <input id="albumInput" placeholder="Album name" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" />
+            <button id="btnCreateAlbum" class="mt-2 w-full sm:w-auto rounded-xl bg-black text-white px-4 py-3 dark:bg-white dark:text-black">Create album</button>
           </div>
           <div id="albumHint" class="text-sm text-gray-500"></div>
         </div>
@@ -48,26 +48,26 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
           <div class="text-sm font-medium mb-1">Usage</div>
-          <select id="usage" class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700">
+          <select id="usage" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700">
             <option value="1">One-time</option>
             <option value="-1">Indefinite</option>
           </select>
         </div>
         <div>
           <div class="text-sm font-medium mb-1">Expires in days</div>
-          <input id="days" type="number" min="0" placeholder="Leave empty for no expiry" class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700" />
+          <input id="days" type="number" min="0" placeholder="Leave empty for no expiry" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" />
         </div>
       </div>
       <div>
-        <button id="btnCreate" class="rounded-xl bg-black text-white px-4 py-2 dark:bg-white dark:text-black">Create link</button>
+        <button id="btnCreate" class="w-full sm:w-auto rounded-xl bg-black text-white px-5 py-3 dark:bg-white dark:text-black">Create link</button>
       </div>
       <div id="result" class="hidden rounded-xl border p-3 text-sm space-y-2">
-        <div id="linkRow" class="flex items-center gap-2">
-          <input id="linkOut" class="flex-1 rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700" readonly />
-          <button id="btnCopy" type="button" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600">Copy</button>
+        <div id="linkRow" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <input id="linkOut" class="flex-1 rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" readonly />
+          <button id="btnCopy" type="button" class="rounded-xl border px-4 py-3 text-sm dark:border-gray-600" aria-label="Copy link">Copy</button>
         </div>
         <div>
-          <img id="qrImg" alt="QR" class="h-40 w-40" />
+          <img id="qrImg" alt="QR" class="h-32 w-32 md:h-40 md:w-40" />
         </div>
       </div>
     </section>

@@ -173,12 +173,14 @@ async function runQueue(){
 // --- DOM refs ---
 const dz = document.getElementById('dropzone');
 const fi = document.getElementById('fileInput');
+const btnMobilePick = document.getElementById('btnMobilePick');
 const btnClearFinished = document.getElementById('btnClearFinished');
 const btnClearAll = document.getElementById('btnClearAll');
 const btnPing = document.getElementById('btnPing');
 const pingStatus = document.getElementById('pingStatus');
 const banner = document.getElementById('topBanner');
 const btnTheme = document.getElementById('btnTheme');
+const dropHint = document.getElementById('dropHint');
 
 // --- Simple banner helper ---
 function showBanner(text, kind='ok'){
@@ -245,6 +247,9 @@ dz.addEventListener('drop', (e)=>{
 // --- Mobile-safe file input change handler ---
 const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 let suppressClicksUntil = 0;
+if (isTouch && dropHint) {
+  try { dropHint.classList.add('hidden'); } catch {}
+}
 
 fi.addEventListener('click', (e) => {
   // prevent bubbling to parents (extra safety)
@@ -276,6 +281,14 @@ if (!isTouch) {
     try { fi.value = ''; } catch {}
     fi.click();
   });
+}
+
+// Mobile sticky CTA: trigger system file picker
+if (btnMobilePick) {
+  btnMobilePick.onclick = () => {
+    try { fi.value = ''; } catch {}
+    fi.click();
+  };
 }
 
 // --- Clear buttons ---

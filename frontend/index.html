@@ -7,21 +7,20 @@
   <link rel="icon" type="image/png" href="/static/favicon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    tailwind.config = {
-      darkMode: 'class'
-    }
+    tailwind.config = { darkMode: 'class' };
   </script>
+  <style> body { padding-bottom: env(safe-area-inset-bottom); } </style>
 </head>
 <body class="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-200">
   <div class="mx-auto max-w-4xl p-6 space-y-6">
     <!-- Ephemeral top banner -->
     <div id="topBanner" class="hidden rounded-2xl border border-green-200 bg-green-50 p-3 text-green-700 text-center dark:bg-green-900 dark:border-green-700 dark:text-green-300"></div>
 
-    <header class="flex items-center justify-between">
+    <header class="flex items-center justify-between flex-wrap gap-2">
       <h1 class="text-2xl font-semibold tracking-tight">Immich Drop Uploader</h1>
       <div class="flex items-center gap-2">
-        <a href="/login" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors">Login</a>
-        <button id="btnTheme" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors" title="Toggle dark mode">
+        <a href="/login" class="rounded-xl border px-4 py-2 text-sm dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors" aria-label="Login">Login</a>
+        <button id="btnTheme" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors" title="Toggle dark mode" aria-label="Toggle theme">
           <svg id="iconLight" class="w-4 h-4 hidden" fill="currentColor" viewBox="0 0 20 20">
             <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"/>
           </svg>
@@ -29,28 +28,29 @@
             <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
           </svg>
         </button>
-        <button id="btnPing" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors">Test connection</button>
-        <span id="pingStatus" class="ml-2 text-sm text-gray-500 dark:text-gray-400"></span>
+        <button id="btnPing" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors" aria-label="Test connection">Test connection</button>
+        <span id="pingStatus" class="ml-2 text-sm text-gray-500 dark:text-gray-400 hidden sm:inline"></span>
       </div>
     </header>
 
     <!-- Dropzone -->
-    <section id="dropzone" class="rounded-2xl border-2 border-dashed p-10 text-center bg-white dark:bg-gray-800 dark:border-gray-600 transition-colors">
-      <div class="mx-auto h-12 w-12 opacity-70">
+    <section id="dropzone" class="rounded-2xl border-2 border-dashed p-8 md:p-10 text-center bg-white dark:bg-gray-800 dark:border-gray-600 transition-colors">
+      <div id="dropHint" class="mx-auto h-12 w-12 opacity-70 hidden md:block">
         <!-- upload icon -->
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 16V8m0 0l-3 3m3-3 3 3M4 16a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-1a1 1 0 1 0-2 0v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-1a1 1 0 1 0-2 0v1z"/></svg>
       </div>
-      <p class="mt-3 font-medium">Drop images or videos here</p>
-      <p class="text-sm text-gray-600 dark:text-gray-400">...or</p>
+      <p class="mt-3 font-medium hidden md:block">Drop images or videos here</p>
+      <p class="text-sm text-gray-600 dark:text-gray-400 hidden md:block">...or</p>
 
       <!-- Mobile-safe choose control: label wraps the hidden input -->
       <div class="mt-3 relative inline-block">
-        <label class="rounded-2xl bg-black text-white dark:bg-white dark:text-black px-4 py-2 hover:opacity-90 cursor-pointer select-none transition-colors">
+        <label class="rounded-2xl bg-black text-white dark:bg-white dark:text-black px-5 py-3 hover:opacity-90 cursor-pointer select-none transition-colors" aria-label="Choose files">
           Choose files
           <input id="fileInput"
                  type="file"
                  multiple
                  accept="image/*,video/*"
+                 capture="environment"
                  class="absolute inset-0 opacity-0 cursor-pointer" />
         </label>
       </div>
@@ -83,6 +83,13 @@
     <footer class="pt-4 pb-10 text-center text-xs text-gray-500 dark:text-gray-400">
       Built for simple, account-less uploads to Immich. This page never lists media from the server and only shows your current session's items.
     </footer>
+  </div>
+
+  <!-- Sticky mobile upload bar -->
+  <div class="md:hidden fixed left-0 right-0 bottom-0 z-20 p-3 bg-white/90 dark:bg-gray-900/90 border-t border-gray-200 dark:border-gray-700 backdrop-blur" style="padding-bottom: calc(env(safe-area-inset-bottom) + 12px)">
+    <div class="mx-auto max-w-4xl">
+      <button id="btnMobilePick" class="w-full rounded-2xl bg-black text-white dark:bg-white dark:text-black px-5 py-3" aria-label="Choose files">Choose files</button>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>
