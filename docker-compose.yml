@@ -15,6 +15,9 @@ services:
       #Enable/Disable Public upload page to folder
       PUBLIC_UPLOAD_PAGE_ENABLED: false
       IMMICH_ALBUM_NAME: dead-drop
+      # Chunked uploads to bypass 100MB limits (e.g., Cloudflare Tunnel)
+      CHUNKED_UPLOADS_ENABLED: true
+      CHUNK_SIZE_MB: 95
 
 
     volumes:

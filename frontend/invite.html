@@ -53,6 +53,16 @@
       </div>
     </section>
 
+    <!-- Password gate (hidden unless required) -->
+    <section id="pwGate" class="hidden rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 space-y-3">
+      <div class="text-sm">This link is protected. Enter the password to continue.</div>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <input id="pwInput" type="password" placeholder="Password" class="flex-1 rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" />
+        <button id="btnPw" class="rounded-xl bg-black text-white px-4 py-3 dark:bg-white dark:text-black">Unlock</button>
+      </div>
+      <div id="pwError" class="hidden text-sm text-red-600 dark:text-red-400"></div>
+    </section>
+
     <!-- Dropzone and queue copied from index.html -->
     <section id="dropzone" class="rounded-2xl border-2 border-dashed p-8 md:p-10 text-center bg-white dark:bg-gray-800 dark:border-gray-600">
       <div id="dropHint" class="mx-auto h-12 w-12 opacity-70 hidden md:block">
@@ -120,14 +130,46 @@
       document.getElementById('liExpires').textContent = j.expiresAt ? fmt(j.expiresAt) : 'No expiry';
       document.getElementById('liClaimed').textContent = j.claimed ? 'Yes' : 'No';
       document.getElementById('liStatus').textContent = j.active ? 'Active' : 'Inactive';
+      const dz = document.getElementById('dropzone');
+      const fi = document.getElementById('fileInput');
+      const itemsEl = document.getElementById('items');
+      const pwGate = document.getElementById('pwGate');
+      if (j.passwordRequired && !j.authorized) {
+        // Show password gate and disable uploader until authorized
+        pwGate.classList.remove('hidden');
+        dz.classList.add('opacity-50');
+        if (fi) fi.disabled = true;
+        itemsEl.innerHTML = '<div class="text-sm text-gray-500">Enter the password above to enable uploads.</div>';
+        // Wire unlock button
+        const pwInput = document.getElementById('pwInput');
+        const btnPw = document.getElementById('btnPw');
+        const pwError = document.getElementById('pwError');
+        const doAuth = async () => {
+          pwError.classList.add('hidden');
+          const pw = (pwInput && pwInput.value) ? pwInput.value.trim() : '';
+          if (!pw) { pwError.textContent = 'Please enter a password.'; pwError.classList.remove('hidden'); return; }
+          try {
+            const rr = await fetch(`/api/invite/${token}/auth`, { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify({ password: pw }) });
+            const jj = await rr.json().catch(()=>({}));
+            if (!rr.ok || !jj.authorized) { pwError.textContent = 'Invalid password.'; pwError.classList.remove('hidden'); return; }
+            pwGate.classList.add('hidden');
+            dz.classList.remove('opacity-50');
+            if (fi) fi.disabled = false;
+            itemsEl.innerHTML = '';
+            try { showBanner('Password accepted. You can upload now.', 'ok'); } catch {}
+          } catch (e) {
+            pwError.textContent = 'Error verifying password.';
+            pwError.classList.remove('hidden');
+          }
+        };
+        if (btnPw) btnPw.onclick = doAuth;
+        if (pwInput) pwInput.addEventListener('keydown', (e)=>{ if (e.key==='Enter') { e.preventDefault(); doAuth(); } });
+      }
       if (!j.active) {
         // Disable dropzone
-        const dz = document.getElementById('dropzone');
-        const fi = document.getElementById('fileInput');
         dz.classList.add('opacity-50');
         fi.disabled = true;
-        const items = document.getElementById('items');
-        items.innerHTML = '<div class="text-sm text-gray-500">This link is not active.</div>';
+        itemsEl.innerHTML = '<div class="text-sm text-gray-500">This link is not active.</div>';
       }
     } catch {}
   })();

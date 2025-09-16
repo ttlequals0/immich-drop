@@ -57,6 +57,11 @@
           <div class="text-sm font-medium mb-1">Expires in days</div>
           <input id="days" type="number" min="0" placeholder="Leave empty for no expiry" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" />
         </div>
+        <div>
+          <div class="text-sm font-medium mb-1">Password (optional)</div>
+          <input id="password" type="password" placeholder="Set a password for this link" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" />
+          <div class="mt-1 text-xs text-gray-500">Recipients must enter this password before uploading.</div>
+        </div>
       </div>
       <div>
         <button id="btnCreate" class="w-full sm:w-auto rounded-xl bg-black text-white px-5 py-3 dark:bg-white dark:text-black">Create link</button>
@@ -96,6 +101,7 @@
     const linkOut = document.getElementById('linkOut');
     const btnCopy = document.getElementById('btnCopy');
     const qrImg = document.getElementById('qrImg');
+    const passwordInput = document.getElementById('password');
 
     function showResult(kind, text){
       result.className = 'rounded-xl border p-3 text-sm space-y-2 ' + (kind==='ok' ? 'border-green-200 bg-green-50 text-green-700 dark:bg-green-900 dark:border-green-700 dark:text-green-300' : 'border-red-200 bg-red-50 text-red-700 dark:bg-red-900 dark:border-red-700 dark:text-red-300');
@@ -145,6 +151,8 @@
       const d = days.value.trim();
       if (d) payload.expiresDays = parseInt(d, 10);
       if (albumId) payload.albumId = albumId; else if (albumName) payload.albumName = albumName;
+      const pw = (passwordInput && passwordInput.value) ? passwordInput.value.trim() : '';
+      if (pw) payload.password = pw;
       try{
         const r = await fetch('/api/invites', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(payload) });
         const j = await r.json().catch(()=>({}));

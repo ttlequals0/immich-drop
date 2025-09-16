@@ -22,6 +22,8 @@ class Settings:
     state_db: str = ""
     session_secret: str = ""
     log_level: str = "INFO"
+    chunked_uploads_enabled: bool = False
+    chunk_size_mb: int = 95
 
     @property
     def normalized_base_url(self) -> str:
@@ -51,6 +53,11 @@ def load_settings() -> Settings:
     state_db = os.getenv("STATE_DB", "/data/state.db")
     session_secret = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    chunked_uploads_enabled = as_bool(os.getenv("CHUNKED_UPLOADS_ENABLED", "false"), False)
+    try:
+        chunk_size_mb = int(os.getenv("CHUNK_SIZE_MB", "95"))
+    except ValueError:
+        chunk_size_mb = 95
     return Settings(
         immich_base_url=base,
         immich_api_key=api_key,
@@ -61,4 +68,6 @@ def load_settings() -> Settings:
         state_db=state_db,
         session_secret=session_secret,
         log_level=log_level,
+        chunked_uploads_enabled=chunked_uploads_enabled,
+        chunk_size_mb=chunk_size_mb,
     )

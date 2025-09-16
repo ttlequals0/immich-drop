@@ -1,5 +1,6 @@
 // Frontend logic (mobile-safe picker; no settings UI)
 const sessionId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2));
+let CFG = { chunked_uploads_enabled: false, chunk_size_mb: 95 };
 // Detect invite token from URL path /invite/{token}
 let INVITE_TOKEN = null;
 try {
@@ -39,6 +40,21 @@ function updateThemeIcon() {
 }
 
 initDarkMode();
+
+// --- Load minimal config ---
+(async function loadConfig(){
+  try{
+    const r = await fetch('/api/config');
+    if (r.ok) {
+      const j = await r.json();
+      if (j && typeof j === 'object') {
+        CFG.chunked_uploads_enabled = !!j.chunked_uploads_enabled;
+        const n = parseInt(j.chunk_size_mb, 10);
+        if (!Number.isNaN(n) && n > 0) CFG.chunk_size_mb = n;
+      }
+    }
+  }catch{}
+})();
 
 // --- helpers ---
 function human(bytes){
@@ -156,27 +172,10 @@ async function runQueue(){
     render();
     inflight++;
     try{
-      const form = new FormData();
-      form.append('file', next.file);
-      form.append('item_id', next.id);
-      form.append('session_id', sessionId);
-      form.append('last_modified', next.file.lastModified || '');
-      if (INVITE_TOKEN) form.append('invite_token', INVITE_TOKEN);
-      const res = await fetch('/api/upload', { method:'POST', body: form });
-      const body = await res.json().catch(()=>({}));
-      if(!res.ok && next.status!=='error'){
-        next.status='error';
-        next.message = body.error || 'Upload failed';
-        render();
-      } else if (res.ok) {
-        // Fallback finalize on HTTP success in case WS final message is missed
-        const statusText = (body && body.status) ? String(body.status) : '';
-        const isDuplicate = /duplicate/i.test(statusText);
-        next.status = isDuplicate ? 'duplicate' : 'done';
-        next.message = statusText || (isDuplicate ? 'Duplicate' : 'Uploaded');
-        next.progress = 100;
-        render();
-        try { showBanner(isDuplicate ? `Duplicate: ${next.name}` : `Uploaded: ${next.name}`, isDuplicate ? 'warn' : 'ok'); } catch {}
+      if (CFG.chunked_uploads_enabled && next.file.size > (CFG.chunk_size_mb * 1024 * 1024)) {
+        await uploadChunked(next);
+      } else {
+        await uploadWhole(next);
       }
     }catch(err){
       next.status='error';
@@ -188,6 +187,94 @@ async function runQueue(){
     }
   }
   for(let i=0;i<3;i++) runNext();
+}
+
+async function uploadWhole(next){
+  const form = new FormData();
+  form.append('file', next.file);
+  form.append('item_id', next.id);
+  form.append('session_id', sessionId);
+  form.append('last_modified', next.file.lastModified || '');
+  if (INVITE_TOKEN) form.append('invite_token', INVITE_TOKEN);
+  const res = await fetch('/api/upload', { method:'POST', body: form });
+  const body = await res.json().catch(()=>({}));
+  if(!res.ok && next.status!=='error'){
+    next.status='error';
+    next.message = body.error || 'Upload failed';
+    render();
+  } else if (res.ok) {
+    const statusText = (body && body.status) ? String(body.status) : '';
+    const isDuplicate = /duplicate/i.test(statusText);
+    next.status = isDuplicate ? 'duplicate' : 'done';
+    next.message = statusText || (isDuplicate ? 'Duplicate' : 'Uploaded');
+    next.progress = 100;
+    render();
+    try { showBanner(isDuplicate ? `Duplicate: ${next.name}` : `Uploaded: ${next.name}`, isDuplicate ? 'warn' : 'ok'); } catch {}
+  }
+}
+
+async function uploadChunked(next){
+  const chunkBytes = Math.max(1, CFG.chunk_size_mb|0) * 1024 * 1024;
+  const total = Math.ceil(next.file.size / chunkBytes) || 1;
+  // init
+  try {
+    await fetch('/api/upload/chunk/init', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify({
+      item_id: next.id,
+      session_id: sessionId,
+      name: next.file.name,
+      size: next.file.size,
+      last_modified: next.file.lastModified || '',
+      invite_token: INVITE_TOKEN || '',
+      content_type: next.file.type || 'application/octet-stream'
+    }) });
+  } catch {}
+  // upload parts
+  let uploaded = 0;
+  for (let i=0;i<total;i++){
+    const start = i * chunkBytes;
+    const end = Math.min(next.file.size, start + chunkBytes);
+    const blob = next.file.slice(start, end);
+    const fd = new FormData();
+    fd.append('item_id', next.id);
+    fd.append('session_id', sessionId);
+    fd.append('chunk_index', String(i));
+    fd.append('total_chunks', String(total));
+    if (INVITE_TOKEN) fd.append('invite_token', INVITE_TOKEN);
+    fd.append('chunk', blob, `${next.file.name}.part${i}`);
+    const r = await fetch('/api/upload/chunk', { method:'POST', body: fd });
+    if (!r.ok) {
+      const j = await r.json().catch(()=>({}));
+      throw new Error(j.error || `Chunk ${i} failed`);
+    }
+    uploaded++;
+    // Approximate progress until final server-side upload takes over
+    next.status = 'uploading';
+    next.progress = Math.min(90, Math.floor((uploaded/total) * 60) + 20); // stay under 100 until WS finish
+    render();
+  }
+  // complete
+  const rc = await fetch('/api/upload/chunk/complete', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify({
+    item_id: next.id,
+    session_id: sessionId,
+    name: next.file.name,
+    last_modified: next.file.lastModified || '',
+    invite_token: INVITE_TOKEN || '',
+    content_type: next.file.type || 'application/octet-stream',
+    total_chunks: total
+  }) });
+  const body = await rc.json().catch(()=>({}));
+  if (!rc.ok && next.status!=='error'){
+    next.status='error';
+    next.message = body.error || 'Upload failed';
+    render();
+  } else if (rc.ok) {
+    const statusText = (body && body.status) ? String(body.status) : '';
+    const isDuplicate = /duplicate/i.test(statusText);
+    next.status = isDuplicate ? 'duplicate' : 'done';
+    next.message = statusText || (isDuplicate ? 'Duplicate' : 'Uploaded');
+    next.progress = 100;
+    render();
+  }
 }
 
 // --- DOM refs ---
