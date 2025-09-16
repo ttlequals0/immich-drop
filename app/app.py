@@ -579,9 +579,11 @@ async def api_upload(
                 if asset_id:
                     added = False
                     if invite_token:
-                        added = add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name)
-                        if added:
-                            status += f" (added to album '{target_album_name or target_album_id}')"
+                        # Only add if invite specified an album; do not fallback to env default
+                        if target_album_id or target_album_name:
+                            added = add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name)
+                            if added:
+                                status += f" (added to album '{target_album_name or target_album_id}')"
                     elif SETTINGS.album_name:
                         if add_asset_to_album(asset_id, request=request):
                             status += f" (added to album '{SETTINGS.album_name}')"
@@ -893,9 +895,11 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
             if asset_id:
                 added = False
                 if invite_token:
-                    added = add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name)
-                    if added:
-                        status += f" (added to album '{target_album_name or target_album_id}')"
+                    # Only add if invite specified an album; do not fallback to env default
+                    if target_album_id or target_album_name:
+                        added = add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name)
+                        if added:
+                            status += f" (added to album '{target_album_name or target_album_id}')"
                 elif SETTINGS.album_name:
                     if add_asset_to_album(asset_id, request=request):
                         status += f" (added to album '{SETTINGS.album_name}')"
@@ -1084,9 +1088,8 @@ async def api_invites_create(request: Request) -> JSONResponse:
         max_uses = int(max_uses)
     except Exception:
         max_uses = 1
-    if not album_id and not album_name and not SETTINGS.album_name:
-        return JSONResponse({"error": "missing_album"}, status_code=400)
-    if not album_name and SETTINGS.album_name:
+    # Allow blank album for invites (no album association)
+    if not album_name and SETTINGS.album_name and not album_id and album_name is not None:
         album_name = SETTINGS.album_name
     # If only album_name provided, resolve or create now to fix to an ID
     resolved_album_id = None

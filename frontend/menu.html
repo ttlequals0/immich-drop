@@ -33,13 +33,13 @@
 
     <section class="rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 space-y-4">
       <div>
-        <div class="text-sm font-medium mb-1">Target album</div>
+        <div class="text-sm font-medium mb-1">Target album (optional)</div>
         <div id="albumControls" class="space-y-2">
           <div id="albumSelectWrap" class="hidden">
             <select id="albumSelect" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700"></select>
           </div>
           <div id="albumInputWrap" class="hidden">
-            <input id="albumInput" placeholder="Album name" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" />
+            <input id="albumInput" placeholder="Album name (leave blank for none)" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" />
             <button id="btnCreateAlbum" class="mt-2 w-full sm:w-auto rounded-xl bg-black text-white px-4 py-3 dark:bg-white dark:text-black">Create album</button>
           </div>
           <div id="albumHint" class="text-sm text-gray-500"></div>
@@ -112,16 +112,17 @@
       try {
         const r = await fetch('/api/albums');
         if (r.status === 403) {
-          albumHint.textContent = 'Listing albums is forbidden with current credentials. Using .env IMMICH_ALBUM_NAME if set.';
+          albumHint.textContent = 'Listing albums is forbidden with current credentials. You can still type a new album name or leave it blank to upload without an album. If IMMICH_ALBUM_NAME is set in .env, that will be used for non-invite uploads.';
           albumInputWrap.classList.remove('hidden');
           return;
         }
         const list = await r.json();
         if (Array.isArray(list)){
-          albumSelect.innerHTML = list.map(a => `<option value="${a.id}">${a.albumName || a.title || a.id}</option>`).join('');
+          const opts = [{id:'', name:'— No album —'}].concat(list.map(a => ({id:a.id, name:(a.albumName || a.title || a.id)})));
+          albumSelect.innerHTML = opts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
           albumSelectWrap.classList.remove('hidden');
           albumInputWrap.classList.remove('hidden');
-          albumHint.textContent = 'Pick an existing album, or type a new name and click Create album.';
+          albumHint.textContent = 'Pick an existing album, or type a new name and click Create album. Select “— No album —” or leave the field blank to skip album association.';
         }
       } catch (e) {
         albumHint.textContent = 'Failed to load albums.';
