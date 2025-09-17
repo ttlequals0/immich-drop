@@ -19,12 +19,18 @@ Admin users log in to create public invite links; invite links are always public
 - **Dark mode** — detects system preference; manual toggle persists across pages  
 - **Albums** — add uploads to a configured album (creates if needed)  
 - **Copy + QR** — copy invite link and display QR for easy sharing
+ - **Chunked uploads (optional)** — split large files to bypass proxy limits; configurable size  
+ - **Invite passwords (optional)** — protect invite links with a password prompt  
+ - **Device‑flexible HMI** — responsive layout, mobile‑safe picker, sticky mobile bar  
+ - **Retry failed uploads** — one‑click retry for any errored item  
+ - **Invites without album** — create links that don’t add uploads to any album
 
 ---
 
 ## Table of contents
 - [Quick start](#quick-start)
 - [New Features](#new-features)
+- [Chunked Uploads](#chunked-uploads)
 - [Architecture](#architecture)
 - [Folder structure](#folder-structure)
 - [Requirements](#requirements)
@@ -63,6 +69,10 @@ services:
       IMMICH_ALBUM_NAME: dead-drop
       PUBLIC_UPLOAD_PAGE_ENABLED: "false"   # keep disabled by default
       PUBLIC_BASE_URL: https://drop.example.com
+
+      # Large files: chunked uploads (bypass 100MB proxy limits)
+      CHUNKED_UPLOADS_ENABLED: "false"      # enable chunked uploads
+      CHUNK_SIZE_MB: "95"                  # per-chunk size (MB)
 
       # App internals
       SESSION_SECRET: ${SESSION_SECRET}
@@ -108,6 +118,34 @@ docker compose up -d
 - Set link expiry (e.g., 1, 2, 7 days). Expired links are inactive.
 - Copy link and view a QR code for easy sharing.
 
+### 🔑 Invite Passwords (New)
+- When creating an invite, you can optionally set a password.
+- Recipients must enter the password before they can upload through the link.
+- The app stores only a salted hash server‑side; sessions that pass the check are marked authorized.
+
+### 🧩 Chunked Uploads (New)
+- Opt‑in support for splitting large files into chunks to bypass proxy limits (e.g., Cloudflare 100MB).
+- Enable with `CHUNKED_UPLOADS_ENABLED=true`; tune `CHUNK_SIZE_MB` (default 95MB).
+- The frontend automatically switches to chunked mode only for files larger than the configured chunk size.
+
+### 📱 Device‑Flexible HMI (New)
+- Fully responsive UI with improved spacing and wrapping for small and large screens.
+- Mobile‑safe file picker and a sticky bottom “Choose files” bar on phones.
+- Safe‑area padding for devices with notches; refined dark/light theme behavior.
+- Desktop keeps the dropzone clickable; touch devices avoid accidental double‑open.
+
+### ♻️ Reliability & Quality of Life (New)
+- Retry button to re‑attempt any failed upload without re‑selecting the file.
+- Progress and status updates are more resilient to late/reordered WebSocket events.
+- Invites can be created without an album, keeping uploads unassigned when preferred.
+
+### Last 8 Days – Highlights
+- Added chunked uploads with configurable chunk size.
+- Added optional passwords for invite links with in‑UI unlock prompt.
+- Responsive HMI overhaul: mobile‑safe picker, sticky mobile action bar, safe‑area support.
+- Retry for failed uploads and improved progress handling.
+- Support for invites with no album association.
+
 ### 🌙 Dark Mode
 - Automatically detects system dark/light preference on first visit
 - Manual toggle button in the header (sun/moon icon)
@@ -125,6 +163,14 @@ docker compose up -d
 ### 🐛 Bug Fixes
 - Fixed WebSocket disconnection error that occurred when clients closed connections
 - Improved error handling for edge cases
+
+---
+
+## Chunked Uploads
+
+- Enable chunked uploads by setting `CHUNKED_UPLOADS_ENABLED=true`.
+- Configure chunk size with `CHUNK_SIZE_MB` (default: `95`). The client only uses chunked mode for files larger than this.
+- Intended to bypass upstream limits (e.g., 100MB) while preserving duplicate checks, EXIF timestamps, album add, and per‑item progress via WebSocket.
 
 ---
 
@@ -215,6 +261,10 @@ STATE_DB=./data/state.db
 # Session and security
 SESSION_SECRET=SET-A-STRONG-RANDOM-VALUE
 LOG_LEVEL=DEBUG
+
+# Chunked uploads (optional)
+CHUNKED_UPLOADS_ENABLED=true
+CHUNK_SIZE_MB=95
 
 ```
 
