@@ -1,6 +1,6 @@
 *.env
 agent.md
-
+docker-compose.yml
 # Python cache and build artifacts
 __pycache__/
 app/__pycache__/*

@@ -1,0 +1,33 @@
+services:
+  immich-drop:
+    build: .
+    container_name: immich-drop
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+
+    environment:
+      #immich drop server ip
+      IMMICH_BASE_URL: https://immich.example.com/api
+      IMMICH_API_KEY: ${IMMICH_API_KEY}
+
+      PUBLIC_BASE_URL: https://drop.example.com
+      #Enable/Disable Public upload page to folder
+      PUBLIC_UPLOAD_PAGE_ENABLED: false
+      IMMICH_ALBUM_NAME: dead-drop
+      # Chunked uploads to bypass 100MB limits (e.g., Cloudflare Tunnel)
+      CHUNKED_UPLOADS_ENABLED: true
+      CHUNK_SIZE_MB: 95
+
+
+    volumes:
+      - immich_drop_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request,sys\ntry:\n  urllib.request.urlopen('http://localhost:8080/').read(); sys.exit(0)\nexcept Exception:\n  sys.exit(1)\nPY"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  immich_drop_data:
