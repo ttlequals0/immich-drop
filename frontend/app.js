@@ -353,6 +353,20 @@ dz.addEventListener('drop', (e)=>{
 
 // --- Mobile-safe file input change handler ---
 const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+// On iOS Safari, the `capture` attribute forces camera-only and hides Photo Library.
+// Keep camera default on Android, but remove capture elsewhere to allow picking from Photos/Files.
+try {
+  const ua = (navigator.userAgent || navigator.vendor || window.opera || '');
+  const isAndroid = /Android/i.test(ua);
+  if (fi) {
+    if (isAndroid) {
+      fi.setAttribute('capture', 'environment');
+    } else {
+      fi.removeAttribute('capture');
+    }
+  }
+} catch {}
 let suppressClicksUntil = 0;
 if (isTouch && dropHint) {
   try { dropHint.classList.add('hidden'); } catch {}
