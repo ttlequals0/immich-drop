@@ -7,23 +7,16 @@ Admin users log in to create public invite links; invite links are always public
 
 ## Features
 
-- **Invite links (public)** — create upload links you can share with anyone  
-- **One‑time link claim** — first browser session claims a one‑time link; it can upload multiple files, others are blocked  
-- **Optional public uploader** — disabled by default; can be enabled via `.env`  
-- **Queue with progress** via WebSocket (success / duplicate / error)  
-- **Duplicate prevention** (local SHA‑1 cache + optional Immich bulk‑check)  
-- **Original dates preserved** (EXIF → `fileCreatedAt` / `fileModifiedAt`)  
-- **Mobile‑friendly**  
-- **.env‑only config** (clean deploys) + Docker/Compose  
-- **Privacy‑first**: never lists server media; UI only shows the current session  
-- **Dark mode** — detects system preference; manual toggle persists across pages  
-- **Albums** — add uploads to a configured album (creates if needed)  
-- **Copy + QR** — copy invite link and display QR for easy sharing
- - **Chunked uploads (optional)** — split large files to bypass proxy limits; configurable size  
- - **Invite passwords (optional)** — protect invite links with a password prompt  
- - **Device‑flexible HMI** — responsive layout, mobile‑safe picker, sticky mobile bar  
- - **Retry failed uploads** — one‑click retry for any errored item  
- - **Invites without album** — create links that don’t add uploads to any album
+- **Invite Links:** public-by-URL links for uploads; one-time or multi-use
+- **Manage Links:** search/sort, enable/disable, delete, edit name/expiry
+- **Row Actions:** icon-only actions with tooltips (Open, Copy, Details, QR, Save)
+- **Passwords (optional):** protect invites with a password gate
+- **Albums (optional):** upload into a specific album (auto-create supported)
+- **Duplicate Prevention:** local SHA‑1 cache (+ optional Immich bulk-check)
+- **Progress Queue:** WebSocket updates; retry failed items
+- **Chunked Uploads (optional):** large-file support with configurable chunk size
+- **Privacy-first:** never lists server media; session-local uploads only
+- **Mobile + Dark Mode:** responsive UI, safe-area padding, persistent theme
 
 ---
 
@@ -105,27 +98,17 @@ docker compose up -d
 ```
 ---
 
-## New Features
+## What's New
 
-### 🔐 Login + Menu
-- Login with your Immich credentials to access the menu.
-- The menu lets you list/create albums and create invite links.
-- The menu is always behind login; logout clears the session.
+### v0.5.0 – Manage Links overhaul
+- In-panel bulk actions footer (Delete/Enable/Disable stay inside the box)
+- Per-row icon actions with tooltips; Save button lights up only on changes
+- Per-row QR modal; Details modal close fixed and reliable
+- Auto-refresh after creating a link; new row is highlighted and scrolled into view
+- Expiry save fix: stores end-of-day to avoid off-by-one date issues
 
-### 🔗 Invite Links
-- Links are always public by URL (no login required to use).
-- You can make links one‑time (claimed by the first browser session) or indefinite / limited uses.
-- Set link expiry (e.g., 1, 2, 7 days). Expired links are inactive.
-- Copy link and view a QR code for easy sharing.
-
-### 🔑 Invite Passwords (New)
-- When creating an invite, you can optionally set a password.
-- Recipients must enter the password before they can upload through the link.
-- The app stores only a salted hash server‑side; sessions that pass the check are marked authorized.
-
-### 🧩 Chunked Uploads (New)
-- Opt‑in support for splitting large files into chunks to bypass proxy limits (e.g., Cloudflare 100MB).
-- Enable with `CHUNKED_UPLOADS_ENABLED=true`; tune `CHUNK_SIZE_MB` (default 95MB).
+Roadmap highlight
+- We’d like to add a per-user UI and remove reliance on a fixed API key by allowing users to authenticate and provide their own Immich API tokens. This is not in scope for the initial versions but aligns with future direction.
 - The frontend automatically switches to chunked mode only for files larger than the configured chunk size.
 
 ### 📱 Device‑Flexible HMI (New)
@@ -147,22 +130,10 @@ docker compose up -d
 - Support for invites with no album association.
 
 ### 🌙 Dark Mode
-- Automatically detects system dark/light preference on first visit
-- Manual toggle button in the header (sun/moon icon)
-- Preference saved in browser localStorage
-- Smooth color transitions for better UX
-- All UI elements properly themed for both modes
+- Automatic or manual toggle; persisted preference
 
 ### 📁 Album Integration
-- Configure `IMMICH_ALBUM_NAME` environment variable to auto-add uploads to a specific album
-- Album is automatically created if it doesn't exist
-- Efficient caching of album ID to minimize API calls
-- Visual feedback showing which album uploads are being added to
-- Works seamlessly with existing duplicate detection
-
-### 🐛 Bug Fixes
-- Fixed WebSocket disconnection error that occurred when clients closed connections
-- Improved error handling for edge cases
+- Auto-create + assign album if configured; optional invites without album
 
 ---
 

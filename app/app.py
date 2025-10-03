@@ -184,6 +184,28 @@ def sha1_hex(file_bytes: bytes) -> str:
     h.update(file_bytes)
     return h.hexdigest()
 
+def sanitize_filename(name: Optional[str]) -> str:
+    """Return a minimally sanitized filename that preserves the original name.
+
+    - Removes control characters (\x00-\x1F, \x7F)
+    - Replaces path separators ('/' and '\\') with underscore
+    - Falls back to 'file' if empty
+    Other Unicode characters and spaces are preserved.
+    """
+    if not name:
+        return "file"
+    cleaned_chars = []
+    for ch in str(name):
+        o = ord(ch)
+        if o < 32 or o == 127:
+            continue
+        if ch in ('/', '\\'):
+            cleaned_chars.append('_')
+        else:
+            cleaned_chars.append(ch)
+    cleaned = ''.join(cleaned_chars).strip()
+    return cleaned or "file"
+
 def read_exif_datetimes(file_bytes: bytes):
     """
     Extract EXIF DateTimeOriginal / ModifyDate values when possible.
@@ -429,6 +451,7 @@ async def api_upload(
     session_id: str = Form(...),
     last_modified: Optional[int] = Form(None),
     invite_token: Optional[str] = Form(None),
+    fingerprint: Optional[str] = Form(None),
 ):
     """Receive a file, check duplicates, forward to Immich; stream progress via WS."""
     raw = await file.read()
@@ -458,15 +481,17 @@ async def api_upload(
         await send_progress(session_id, item_id, "duplicate", 100, "Duplicate (server)", asset_id)
         return JSONResponse({"status": "duplicate", "id": asset_id}, status_code=200)
 
+    safe_name = sanitize_filename(file.filename)
     def gen_encoder() -> MultipartEncoder:
         return MultipartEncoder(fields={
-            "assetData": (file.filename, io.BytesIO(raw), file.content_type or "application/octet-stream"),
+            "assetData": (safe_name, io.BytesIO(raw), file.content_type or "application/octet-stream"),
             "deviceAssetId": device_asset_id,
             "deviceId": f"python-{session_id}",
             "fileCreatedAt": created_iso,
             "fileModifiedAt": modified_iso,
             "isFavorite": "false",
-            "filename": file.filename,
+            "filename": safe_name,
+            "originalFileName": safe_name,
         })
 
     encoder = gen_encoder()
@@ -478,7 +503,7 @@ async def api_upload(
         try:
             conn = sqlite3.connect(SETTINGS.state_db)
             cur = conn.cursor()
-            cur.execute("SELECT token, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), claimed_by_session, password_hash FROM invites WHERE token = ?", (invite_token,))
+            cur.execute("SELECT token, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), claimed_by_session, password_hash, COALESCE(disabled,0) FROM invites WHERE token = ?", (invite_token,))
             row = cur.fetchone()
             conn.close()
         except Exception as e:
@@ -487,7 +512,14 @@ async def api_upload(
         if not row:
             await send_progress(session_id, item_id, "error", 100, "Invalid invite token")
             return JSONResponse({"error": "invalid_invite"}, status_code=403)
-        _, album_id, album_name, max_uses, used_count, expires_at, claimed, claimed_by_session, password_hash = row
+        _, album_id, album_name, max_uses, used_count, expires_at, claimed, claimed_by_session, password_hash, disabled = row
+        # Admin deactivation check
+        try:
+            if int(disabled) == 1:
+                await send_progress(session_id, item_id, "error", 100, "Invite disabled")
+                return JSONResponse({"error": "invite_disabled"}, status_code=403)
+        except Exception:
+            pass
         # If invite requires password, ensure this session is authorized
         if password_hash:
             try:
@@ -611,6 +643,40 @@ async def api_upload(
                         conn2.close()
                     except Exception as e:
                         logger.exception("Failed to increment invite usage: %s", e)
+                # Log uploader identity and file metadata
+                try:
+                    connlg = sqlite3.connect(SETTINGS.state_db)
+                    curlg = connlg.cursor()
+                    curlg.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS upload_events (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            token TEXT,
+                            uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                            ip TEXT,
+                            user_agent TEXT,
+                            fingerprint TEXT,
+                            filename TEXT,
+                            size INTEGER,
+                            checksum TEXT,
+                            immich_asset_id TEXT
+                        );
+                        """
+                    )
+                    ip = None
+                    try:
+                        ip = (request.client.host if request and request.client else None) or request.headers.get('x-forwarded-for')
+                    except Exception:
+                        ip = None
+                    ua = request.headers.get('user-agent', '') if request else ''
+                    curlg.execute(
+                        "INSERT INTO upload_events (token, ip, user_agent, fingerprint, filename, size, checksum, immich_asset_id) VALUES (?,?,?,?,?,?,?,?)",
+                        (invite_token or '', ip, ua, fingerprint or '', file.filename, size, checksum, asset_id or None)
+                    )
+                    connlg.commit()
+                    connlg.close()
+                except Exception:
+                    pass
                 return JSONResponse({"id": asset_id, "status": status}, status_code=200)
             else:
                 try:
@@ -712,6 +778,7 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
     name = (data or {}).get("name") or "upload.bin"
     last_modified = (data or {}).get("last_modified")
     invite_token = (data or {}).get("invite_token")
+    fingerprint = (data or {}).get("fingerprint")
     content_type = (data or {}).get("content_type") or "application/octet-stream"
     if not item_id or not session_id:
         return JSONResponse({"error": "missing_ids"}, status_code=400)
@@ -726,6 +793,14 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
     total_chunks = int(meta.get("total_chunks") or (data or {}).get("total_chunks") or 0)
     if total_chunks <= 0:
         return JSONResponse({"error": "missing_total"}, status_code=400)
+    # Prefer the name captured at init if request did not include it
+    if not name:
+        try:
+            name = meta.get("name") or name
+        except Exception:
+            pass
+    if not name:
+        name = "upload.bin"
     # Assemble
     parts = []
     try:
@@ -786,15 +861,17 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
         await send_progress(session_id_local, item_id_local, "duplicate", 100, "Duplicate (server)", asset_id)
         return JSONResponse({"status": "duplicate", "id": asset_id}, status_code=200)
 
+    safe_name2 = sanitize_filename(file_like_name)
     def gen_encoder2() -> MultipartEncoder:
         return MultipartEncoder(fields={
-            "assetData": (file_like_name, io.BytesIO(raw), content_type or "application/octet-stream"),
+            "assetData": (safe_name2, io.BytesIO(raw), content_type or "application/octet-stream"),
             "deviceAssetId": device_asset_id,
             "deviceId": f"python-{session_id_local}",
             "fileCreatedAt": created_iso,
             "fileModifiedAt": modified_iso,
             "isFavorite": "false",
-            "filename": file_like_name,
+            "filename": safe_name2,
+            "originalFileName": safe_name2,
         })
 
     # Invite validation/gating mirrors api_upload
@@ -804,7 +881,7 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
         try:
             conn = sqlite3.connect(SETTINGS.state_db)
             cur = conn.cursor()
-            cur.execute("SELECT token, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), claimed_by_session, password_hash FROM invites WHERE token = ?", (invite_token,))
+            cur.execute("SELECT token, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), claimed_by_session, password_hash, COALESCE(disabled,0) FROM invites WHERE token = ?", (invite_token,))
             row = cur.fetchone()
             conn.close()
         except Exception as e:
@@ -813,7 +890,14 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
         if not row:
             await send_progress(session_id_local, item_id_local, "error", 100, "Invalid invite token")
             return JSONResponse({"error": "invalid_invite"}, status_code=403)
-        _, album_id, album_name, max_uses, used_count, expires_at, claimed, claimed_by_session, password_hash = row
+        _, album_id, album_name, max_uses, used_count, expires_at, claimed, claimed_by_session, password_hash, disabled = row
+        # Admin deactivation check
+        try:
+            if int(disabled) == 1:
+                await send_progress(session_id_local, item_id_local, "error", 100, "Invite disabled")
+                return JSONResponse({"error": "invite_disabled"}, status_code=403)
+        except Exception:
+            pass
         if password_hash:
             try:
                 ia = request.session.get("inviteAuth") or {}
@@ -923,6 +1007,40 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
                     conn2.close()
                 except Exception as e:
                     logger.exception("Failed to increment invite usage: %s", e)
+            # Log uploader identity and file metadata
+            try:
+                connlg = sqlite3.connect(SETTINGS.state_db)
+                curlg = connlg.cursor()
+                curlg.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS upload_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        token TEXT,
+                        uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        ip TEXT,
+                        user_agent TEXT,
+                        fingerprint TEXT,
+                        filename TEXT,
+                        size INTEGER,
+                        checksum TEXT,
+                        immich_asset_id TEXT
+                    );
+                    """
+                )
+                ip = None
+                try:
+                    ip = (request.client.host if request and request.client else None) or request.headers.get('x-forwarded-for')
+                except Exception:
+                    ip = None
+                ua = request.headers.get('user-agent', '') if request else ''
+                curlg.execute(
+                    "INSERT INTO upload_events (token, ip, user_agent, fingerprint, filename, size, checksum, immich_asset_id) VALUES (?,?,?,?,?,?,?,?)",
+                    (invite_token or '', ip, ua, fingerprint or '', file_like_name, file_size, checksum, asset_id or None)
+                )
+                connlg.commit()
+                connlg.close()
+            except Exception:
+                pass
             return JSONResponse({"id": asset_id, "status": status}, status_code=200)
         else:
             try:
@@ -1061,6 +1179,27 @@ def ensure_invites_table() -> None:
             cur.execute("ALTER TABLE invites ADD COLUMN password_hash TEXT")
         except Exception:
             pass
+        # Ownership and management fields (best-effort migrations)
+        try:
+            cur.execute("ALTER TABLE invites ADD COLUMN owner_user_id TEXT")
+        except Exception:
+            pass
+        try:
+            cur.execute("ALTER TABLE invites ADD COLUMN owner_email TEXT")
+        except Exception:
+            pass
+        try:
+            cur.execute("ALTER TABLE invites ADD COLUMN owner_name TEXT")
+        except Exception:
+            pass
+        try:
+            cur.execute("ALTER TABLE invites ADD COLUMN name TEXT")
+        except Exception:
+            pass
+        try:
+            cur.execute("ALTER TABLE invites ADD COLUMN disabled INTEGER DEFAULT 0")
+        except Exception:
+            pass
         conn.commit()
         conn.close()
     except Exception as e:
@@ -1125,18 +1264,26 @@ async def api_invites_create(request: Request) -> JSONResponse:
         except Exception:
             return ""
     pw_hash = hash_password(invite_password or "") if (invite_password and str(invite_password).strip()) else None
+    # Owner info from session
+    owner_user_id = str(request.session.get("userId") or "")
+    owner_email = str(request.session.get("userEmail") or "")
+    owner_name = str(request.session.get("name") or "")
+    # Friendly name: default to album + creation timestamp if not provided in future updates
+    # Here we set a default immediately
+    now_tag = datetime.utcnow().strftime("%Y%m%d-%H%M")
+    default_link_name = f"{album_name or 'NoAlbum'}-{now_tag}"
     try:
         conn = sqlite3.connect(SETTINGS.state_db)
         cur = conn.cursor()
         if pw_hash:
             cur.execute(
-                "INSERT INTO invites (token, album_id, album_name, max_uses, expires_at, password_hash) VALUES (?,?,?,?,?,?)",
-                (token, resolved_album_id, album_name, max_uses, expires_at, pw_hash)
+                "INSERT INTO invites (token, album_id, album_name, max_uses, expires_at, password_hash, owner_user_id, owner_email, owner_name, name) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (token, resolved_album_id, album_name, max_uses, expires_at, pw_hash, owner_user_id, owner_email, owner_name, default_link_name)
             )
         else:
             cur.execute(
-                "INSERT INTO invites (token, album_id, album_name, max_uses, expires_at) VALUES (?,?,?,?,?)",
-                (token, resolved_album_id, album_name, max_uses, expires_at)
+                "INSERT INTO invites (token, album_id, album_name, max_uses, expires_at, owner_user_id, owner_email, owner_name, name) VALUES (?,?,?,?,?,?,?,?,?)",
+                (token, resolved_album_id, album_name, max_uses, expires_at, owner_user_id, owner_email, owner_name, default_link_name)
             )
         conn.commit()
         conn.close()
@@ -1157,8 +1304,300 @@ async def api_invites_create(request: Request) -> JSONResponse:
         "albumId": resolved_album_id,
         "albumName": album_name,
         "maxUses": max_uses,
-        "expiresAt": expires_at
+        "expiresAt": expires_at,
+        "name": default_link_name
     })
+
+@app.get("/api/invites")
+async def api_invites_list(request: Request) -> JSONResponse:
+    """List invites owned by the logged-in user, with optional q/sort filters."""
+    if not request.session.get("accessToken"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    owner_user_id = str(request.session.get("userId") or "")
+    q = (request.query_params.get("q") or "").strip()
+    sort = (request.query_params.get("sort") or "-created").strip()
+    # Map sort tokens to SQL
+    sort_sql = "created_at DESC"
+    if sort in ("created", "+created"):
+        sort_sql = "created_at ASC"
+    elif sort in ("-created",):
+        sort_sql = "created_at DESC"
+    elif sort in ("expires", "+expires"):
+        sort_sql = "expires_at ASC"
+    elif sort in ("-expires",):
+        sort_sql = "expires_at DESC"
+    elif sort in ("name", "+name"):
+        sort_sql = "name ASC"
+    elif sort in ("-name",):
+        sort_sql = "name DESC"
+    try:
+        conn = sqlite3.connect(SETTINGS.state_db)
+        cur = conn.cursor()
+        if q:
+            like = f"%{q}%"
+            cur.execute(
+                """
+                SELECT token, name, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), COALESCE(disabled,0), created_at
+                FROM invites
+                WHERE owner_user_id = ? AND (
+                    COALESCE(name,'') LIKE ? OR COALESCE(album_name,'') LIKE ? OR token LIKE ?
+                )
+                ORDER BY """ + sort_sql,
+                (owner_user_id, like, like, like)
+            )
+        else:
+            cur.execute(
+                f"SELECT token, name, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), COALESCE(disabled,0), created_at FROM invites WHERE owner_user_id = ? ORDER BY {sort_sql}",
+                (owner_user_id,)
+            )
+        rows = cur.fetchall()
+        conn.close()
+    except Exception as e:
+        logger.exception("List invites failed: %s", e)
+        return JSONResponse({"error": "db_error"}, status_code=500)
+    items = []
+    now = datetime.utcnow()
+    for (token, name, album_id, album_name, max_uses, used_count, expires_at, claimed, disabled, created_at) in rows:
+        try:
+            max_uses_int = int(max_uses) if max_uses is not None else -1
+        except Exception:
+            max_uses_int = -1
+        remaining = None
+        try:
+            if max_uses_int >= 0:
+                remaining = int(max_uses_int) - int(used_count or 0)
+        except Exception:
+            remaining = None
+        expired = False
+        if expires_at:
+            try:
+                expired = now > datetime.fromisoformat(expires_at)
+            except Exception:
+                expired = False
+        inactive_reason = None
+        active = True
+        if (max_uses_int == 1 and claimed) or (remaining is not None and remaining <= 0):
+            active = False
+            inactive_reason = "claimed" if max_uses_int == 1 else "exhausted"
+        if expired:
+            active = False
+            inactive_reason = inactive_reason or "expired"
+        try:
+            if int(disabled) == 1:
+                active = False
+                inactive_reason = "disabled"
+        except Exception:
+            pass
+        items.append({
+            "token": token,
+            "name": name,
+            "albumId": album_id,
+            "albumName": album_name,
+            "maxUses": max_uses,
+            "used": used_count or 0,
+            "remaining": remaining,
+            "expiresAt": expires_at,
+            "active": active,
+            "inactiveReason": inactive_reason,
+            "createdAt": created_at,
+        })
+    return JSONResponse({"items": items})
+
+@app.patch("/api/invite/{token}")
+async def api_invite_update(token: str, request: Request) -> JSONResponse:
+    """Update invite fields: name, disabled, maxUses, expiresAt/expiresDays, password, resetUsage."""
+    if not request.session.get("accessToken"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    owner_user_id = str(request.session.get("userId") or "")
+    # Build dynamic update
+    fields = []
+    params = []
+    # Name
+    if "name" in (body or {}):
+        fields.append("name = ?")
+        params.append(str((body or {}).get("name") or "").strip())
+    # Disabled toggle
+    if "disabled" in (body or {}):
+        try:
+            disabled = 1 if (bool((body or {}).get("disabled")) is True) else 0
+        except Exception:
+            disabled = 0
+        fields.append("disabled = ?")
+        params.append(disabled)
+    # Max uses
+    if "maxUses" in (body or {}):
+        try:
+            mu = int((body or {}).get("maxUses"))
+        except Exception:
+            mu = 1
+        fields.append("max_uses = ?")
+        params.append(mu)
+    # Expiration
+    if "expiresAt" in (body or {}) or "expiresDays" in (body or {}):
+        expires_at = None
+        if (body or {}).get("expiresAt"):
+            try:
+                # trust provided ISO string
+                expires_at = str((body or {}).get("expiresAt"))
+            except Exception:
+                expires_at = None
+        else:
+            try:
+                days = int((body or {}).get("expiresDays"))
+                from datetime import timedelta
+                expires_at = (datetime.utcnow() + timedelta(days=days)).replace(microsecond=0).isoformat()
+            except Exception:
+                expires_at = None
+        fields.append("expires_at = ?")
+        params.append(expires_at)
+    # Password
+    if "password" in (body or {}):
+        pw = str((body or {}).get("password") or "").strip()
+        if pw:
+            # Reuse hasher from above
+            def _hash_pw(pw: str) -> str:
+                import os as _os
+                import binascii as _binascii
+                salt = _os.urandom(16)
+                iterations = 200_000
+                dk = hashlib.pbkdf2_hmac('sha256', pw.encode('utf-8'), salt, iterations)
+                return f"pbkdf2_sha256${iterations}${_binascii.hexlify(salt).decode()}${_binascii.hexlify(dk).decode()}"
+            fields.append("password_hash = ?")
+            params.append(_hash_pw(pw))
+        else:
+            fields.append("password_hash = NULL")
+    # Reset usage
+    reset_usage = bool((body or {}).get("resetUsage"))
+    try:
+        if fields:
+            conn = sqlite3.connect(SETTINGS.state_db)
+            cur = conn.cursor()
+            cur.execute(
+                f"UPDATE invites SET {', '.join(fields)} WHERE token = ? AND owner_user_id = ?",
+                (*params, token, owner_user_id)
+            )
+            if reset_usage:
+                cur.execute("UPDATE invites SET used_count = 0, claimed = 0, claimed_at = NULL, claimed_by_session = NULL WHERE token = ? AND owner_user_id = ?", (token, owner_user_id))
+            conn.commit()
+            updated = conn.total_changes
+            conn.close()
+        else:
+            updated = 0
+    except Exception as e:
+        logger.exception("Invite update failed: %s", e)
+        return JSONResponse({"error": "db_error"}, status_code=500)
+    if updated == 0:
+        return JSONResponse({"ok": False, "updated": 0}, status_code=404)
+    return JSONResponse({"ok": True, "updated": updated})
+
+@app.post("/api/invites/bulk")
+async def api_invites_bulk(request: Request) -> JSONResponse:
+    """Bulk enable/disable invites owned by current user. Body: {tokens:[], action:'disable'|'enable'}"""
+    if not request.session.get("accessToken"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tokens = list((body or {}).get("tokens") or [])
+    action = str((body or {}).get("action") or "disable").lower().strip()
+    if not tokens:
+        return JSONResponse({"error": "missing_tokens"}, status_code=400)
+    val = 1 if action == "disable" else 0
+    owner_user_id = str(request.session.get("userId") or "")
+    try:
+        conn = sqlite3.connect(SETTINGS.state_db)
+        cur = conn.cursor()
+        # Build query with correct number of placeholders
+        placeholders = ",".join(["?"] * len(tokens))
+        cur.execute(
+            f"UPDATE invites SET disabled = ? WHERE owner_user_id = ? AND token IN ({placeholders})",
+            (val, owner_user_id, *tokens)
+        )
+        conn.commit()
+        changed = conn.total_changes
+        conn.close()
+    except Exception as e:
+        logger.exception("Bulk update failed: %s", e)
+        return JSONResponse({"error": "db_error"}, status_code=500)
+    return JSONResponse({"ok": True, "updated": changed})
+
+@app.post("/api/invites/delete")
+async def api_invites_delete(request: Request) -> JSONResponse:
+    """Hard delete invites owned by the current user and their upload logs.
+
+    Body: { tokens: ["...", ...] }
+    """
+    if not request.session.get("accessToken"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tokens = list((body or {}).get("tokens") or [])
+    if not tokens:
+        return JSONResponse({"error": "missing_tokens"}, status_code=400)
+    owner_user_id = str(request.session.get("userId") or "")
+    try:
+        conn = sqlite3.connect(SETTINGS.state_db)
+        cur = conn.cursor()
+        placeholders = ",".join(["?"] * len(tokens))
+        # Delete upload events first to avoid orphan rows
+        cur.execute(
+            f"DELETE FROM upload_events WHERE token IN ({placeholders})",
+            (*tokens,)
+        )
+        # Delete invites scoped to owner
+        cur.execute(
+            f"DELETE FROM invites WHERE owner_user_id = ? AND token IN ({placeholders})",
+            (owner_user_id, *tokens)
+        )
+        conn.commit()
+        changed = conn.total_changes
+        conn.close()
+    except Exception as e:
+        logger.exception("Bulk delete failed: %s", e)
+        return JSONResponse({"error": "db_error"}, status_code=500)
+    return JSONResponse({"ok": True, "deleted": changed})
+
+@app.get("/api/invite/{token}/uploads")
+async def api_invite_uploads(token: str, request: Request) -> JSONResponse:
+    """Return upload events for a given token (owner-only)."""
+    if not request.session.get("accessToken"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    owner_user_id = str(request.session.get("userId") or "")
+    try:
+        conn = sqlite3.connect(SETTINGS.state_db)
+        cur = conn.cursor()
+        # Verify ownership
+        cur.execute("SELECT 1 FROM invites WHERE token = ? AND owner_user_id = ?", (token, owner_user_id))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        cur.execute("SELECT uploaded_at, ip, user_agent, fingerprint, filename, size, checksum, immich_asset_id FROM upload_events WHERE token = ? ORDER BY uploaded_at DESC LIMIT 500", (token,))
+        rows = cur.fetchall()
+        conn.close()
+    except Exception as e:
+        logger.exception("Fetch uploads failed: %s", e)
+        return JSONResponse({"error": "db_error"}, status_code=500)
+    items = []
+    for uploaded_at, ip, ua, fp, filename, size, checksum, asset_id in rows:
+        items.append({
+            "uploadedAt": uploaded_at,
+            "ip": ip,
+            "userAgent": ua,
+            "fingerprint": fp,
+            "filename": filename,
+            "size": size,
+            "checksum": checksum,
+            "assetId": asset_id,
+        })
+    return JSONResponse({"items": items})
 
 @app.get("/invite/{token}", response_class=HTMLResponse)
 async def invite_page(token: str, request: Request) -> HTMLResponse:
@@ -1172,7 +1611,7 @@ async def api_invite_info(token: str, request: Request) -> JSONResponse:
     try:
         conn = sqlite3.connect(SETTINGS.state_db)
         cur = conn.cursor()
-        cur.execute("SELECT token, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), claimed_at, password_hash FROM invites WHERE token = ?", (token,))
+        cur.execute("SELECT token, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), claimed_at, password_hash, COALESCE(disabled,0), name FROM invites WHERE token = ?", (token,))
         row = cur.fetchone()
         conn.close()
     except Exception as e:
@@ -1180,7 +1619,7 @@ async def api_invite_info(token: str, request: Request) -> JSONResponse:
         return JSONResponse({"error": "db_error"}, status_code=500)
     if not row:
         return JSONResponse({"error": "not_found"}, status_code=404)
-    _, album_id, album_name, max_uses, used_count, expires_at, claimed, claimed_at, password_hash = row
+    _, album_id, album_name, max_uses, used_count, expires_at, claimed, claimed_at, password_hash, disabled, link_name = row
     # compute remaining
     remaining = None
     try:
@@ -1200,12 +1639,23 @@ async def api_invite_info(token: str, request: Request) -> JSONResponse:
         except Exception:
             expired = False
     deactivated = False
+    reason = None
     if one_time and claimed:
         deactivated = True
+        reason = "claimed"
     elif remaining is not None and remaining <= 0:
         deactivated = True
+        reason = "exhausted"
     if expired:
         deactivated = True
+        reason = reason or "expired"
+    # Admin disabled flag
+    try:
+        if int(disabled) == 1:
+            deactivated = True
+            reason = "disabled"
+    except Exception:
+        pass
     active = not deactivated
     # Password requirement + authorization state
     password_required = bool(password_hash)
@@ -1219,6 +1669,7 @@ async def api_invite_info(token: str, request: Request) -> JSONResponse:
         "token": token,
         "albumId": album_id,
         "albumName": album_name,
+        "name": link_name,
         "maxUses": max_uses,
         "used": used_count or 0,
         "remaining": remaining,
@@ -1228,6 +1679,7 @@ async def api_invite_info(token: str, request: Request) -> JSONResponse:
         "claimedAt": claimed_at,
         "expired": expired,
         "active": active,
+        "inactiveReason": (None if active else (reason or "inactive")),
         "passwordRequired": password_required,
         "authorized": authorized,
     })

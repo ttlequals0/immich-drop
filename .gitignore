@@ -1,3 +1,4 @@
+.env
 *.env
 agent.md
 docker-compose.yml
@@ -20,7 +21,14 @@ dist/
 .vscode/
 .DS_Store
 
-# Local data/dbs
+# Local data/dbs (do not commit local state)
+data/
+/data/
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/chunks/
+state.db
+
+# Logs
+*.log

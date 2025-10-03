@@ -129,7 +129,7 @@
       document.getElementById('liUses').textContent = (typeof j.remaining==='number') ? String(j.remaining) : '—';
       document.getElementById('liExpires').textContent = j.expiresAt ? fmt(j.expiresAt) : 'No expiry';
       document.getElementById('liClaimed').textContent = j.claimed ? 'Yes' : 'No';
-      document.getElementById('liStatus').textContent = j.active ? 'Active' : 'Inactive';
+      document.getElementById('liStatus').textContent = j.active ? 'Active' : ('Inactive' + (j.inactiveReason ? (' ('+j.inactiveReason+')') : ''));
       const dz = document.getElementById('dropzone');
       const fi = document.getElementById('fileInput');
       const itemsEl = document.getElementById('items');
@@ -169,7 +169,7 @@
         // Disable dropzone
         dz.classList.add('opacity-50');
         fi.disabled = true;
-        itemsEl.innerHTML = '<div class="text-sm text-gray-500">This link is not active.</div>';
+        itemsEl.innerHTML = `<div class="text-sm text-gray-500">This link is not active${j.inactiveReason?` (${j.inactiveReason})`:''}.</div>`;
       }
     } catch {}
   })();

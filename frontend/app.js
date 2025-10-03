@@ -1,5 +1,28 @@
 // Frontend logic (mobile-safe picker; no settings UI)
 const sessionId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2));
+// Simple device fingerprint: stable per-browser using stored id + UA/screen/timezone
+function getDeviceId(){
+  try{
+    let id = localStorage.getItem('immich_drop_device_id');
+    if (!id) { id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2)); localStorage.setItem('immich_drop_device_id', id); }
+    return id;
+  }catch{ return 'anon'; }
+}
+function computeFingerprint(){
+  try{
+    const id = getDeviceId();
+    const ua = navigator.userAgent || '';
+    const lang = navigator.language || '';
+    const plat = navigator.platform || '';
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const scr = (screen && (screen.width+'x'+screen.height+'x'+screen.colorDepth)) || '';
+    const raw = [id, ua, lang, plat, tz, scr].join('|');
+    // tiny hash
+    let h = 0; for (let i=0;i<raw.length;i++){ h = (h<<5) - h + raw.charCodeAt(i); h |= 0; }
+    return `${id}:${Math.abs(h)}`;
+  }catch{ return getDeviceId(); }
+}
+const FINGERPRINT = computeFingerprint();
 let CFG = { chunked_uploads_enabled: false, chunk_size_mb: 95 };
 // Detect invite token from URL path /invite/{token}
 let INVITE_TOKEN = null;
@@ -196,6 +219,7 @@ async function uploadWhole(next){
   form.append('session_id', sessionId);
   form.append('last_modified', next.file.lastModified || '');
   if (INVITE_TOKEN) form.append('invite_token', INVITE_TOKEN);
+  form.append('fingerprint', FINGERPRINT);
   const res = await fetch('/api/upload', { method:'POST', body: form });
   const body = await res.json().catch(()=>({}));
   if(!res.ok && next.status!=='error'){
@@ -225,7 +249,8 @@ async function uploadChunked(next){
       size: next.file.size,
       last_modified: next.file.lastModified || '',
       invite_token: INVITE_TOKEN || '',
-      content_type: next.file.type || 'application/octet-stream'
+      content_type: next.file.type || 'application/octet-stream',
+      fingerprint: FINGERPRINT
     }) });
   } catch {}
   // upload parts
@@ -240,6 +265,7 @@ async function uploadChunked(next){
     fd.append('chunk_index', String(i));
     fd.append('total_chunks', String(total));
     if (INVITE_TOKEN) fd.append('invite_token', INVITE_TOKEN);
+    fd.append('fingerprint', FINGERPRINT);
     fd.append('chunk', blob, `${next.file.name}.part${i}`);
     const r = await fetch('/api/upload/chunk', { method:'POST', body: fd });
     if (!r.ok) {
@@ -260,6 +286,7 @@ async function uploadChunked(next){
     last_modified: next.file.lastModified || '',
     invite_token: INVITE_TOKEN || '',
     content_type: next.file.type || 'application/octet-stream',
+    fingerprint: FINGERPRINT,
     total_chunks: total
   }) });
   const body = await rc.json().catch(()=>({}));
