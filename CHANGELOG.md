@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2] - 2025-12-28
+
+### Fixed
+- Fixed url-uploader.js not loading due to restrictive file permissions (600 -> 644)
+- Extended Dockerfile chmod to include frontend directory
+
 ## [1.1.1] - 2025-12-28
 
 ### Fixed

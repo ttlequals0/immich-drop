@@ -17,9 +17,9 @@ RUN pip install --no-cache-dir -r /app/requirements.txt \
 # Copy app code
 COPY . /immich_drop
 
-# Ensure Python files are readable (fix permission issues with volume mounts)
-RUN chmod -R 644 /immich_drop/*.py /immich_drop/app/*.py && \
-    chmod 755 /immich_drop /immich_drop/app
+# Ensure all source files are readable (fix permission issues)
+RUN chmod -R 644 /immich_drop/*.py /immich_drop/app/*.py /immich_drop/frontend/* && \
+    chmod 755 /immich_drop /immich_drop/app /immich_drop/frontend
 
 # Data dir for SQLite (state.db)
 RUN mkdir -p /data
