@@ -32,3 +32,6 @@ state.db
 
 # Logs
 *.log
+
+# Claude AI config
+CLAUDE.md

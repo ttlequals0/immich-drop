@@ -19,6 +19,7 @@ import sqlite3
 from datetime import datetime
 from typing import Dict, List, Optional
 
+import httpx
 import requests
 from requests_toolbelt.multipart.encoder import MultipartEncoder, MultipartEncoderMonitor
 import logging
@@ -58,6 +59,11 @@ app.add_middleware(SessionMiddleware, secret_key=SETTINGS.session_secret, same_s
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
+# Include URL/batch upload routes
+from .api_routes import create_api_routes
+api_router = create_api_routes(SETTINGS)
+app.include_router(api_router)
 
 # Chunk upload storage
 CHUNK_ROOT = "/data/chunks"
@@ -247,7 +253,7 @@ def immich_headers(request: Optional[Request] = None) -> dict:
         headers["x-api-key"] = SETTINGS.immich_api_key
     return headers
 
-def get_or_create_album(request: Optional[Request] = None, album_name_override: Optional[str] = None) -> Optional[str]:
+async def get_or_create_album(request: Optional[Request] = None, album_name_override: Optional[str] = None) -> Optional[str]:
     """Get existing album by name or create a new one. Returns album ID or None."""
     global ALBUM_ID
     album_name = album_name_override if album_name_override is not None else SETTINGS.album_name
@@ -258,98 +264,102 @@ def get_or_create_album(request: Optional[Request] = None, album_name_override: 
     if album_name_override is None and ALBUM_ID:
         return ALBUM_ID
     try:
-        # First, try to find existing album
-        url = f"{SETTINGS.normalized_base_url}/albums"
-        r = requests.get(url, headers=immich_headers(request), timeout=10)
-        
-        if r.status_code == 200:
-            albums = r.json()
-            for album in albums:
-                if album.get("albumName") == album_name:
-                    found_id = album.get("id")
-                    if album_name_override is None:
-                        ALBUM_ID = found_id
-                        logger.info(f"Found existing album '%s' with ID: %s", album_name, ALBUM_ID)
-                        return ALBUM_ID
-                    else:
-                        return found_id
-        
-        # Album doesn't exist, create it
-        create_url = f"{SETTINGS.normalized_base_url}/albums"
-        payload = {
-            "albumName": album_name,
-            "description": "Auto-created album for Immich Drop uploads"
-        }
-        r = requests.post(create_url, headers={**immich_headers(request), "Content-Type": "application/json"}, 
-                          json=payload, timeout=10)
-        
-        if r.status_code in (200, 201):
-            data = r.json()
-            new_id = data.get("id")
-            if album_name_override is None:
-                ALBUM_ID = new_id
-                logger.info("Created new album '%s' with ID: %s", album_name, ALBUM_ID)
-                return ALBUM_ID
+        async with httpx.AsyncClient() as client:
+            # First, try to find existing album
+            url = f"{SETTINGS.normalized_base_url}/albums"
+            r = await client.get(url, headers=immich_headers(request), timeout=10.0)
+
+            if r.status_code == 200:
+                albums = r.json()
+                for album in albums:
+                    if album.get("albumName") == album_name:
+                        found_id = album.get("id")
+                        if album_name_override is None:
+                            ALBUM_ID = found_id
+                            logger.info(f"Found existing album '%s' with ID: %s", album_name, ALBUM_ID)
+                            return ALBUM_ID
+                        else:
+                            return found_id
+
+            # Album doesn't exist, create it
+            create_url = f"{SETTINGS.normalized_base_url}/albums"
+            payload = {
+                "albumName": album_name,
+                "description": "Auto-created album for Immich Drop uploads"
+            }
+            r = await client.post(create_url, headers={**immich_headers(request), "Content-Type": "application/json"},
+                              json=payload, timeout=10.0)
+
+            if r.status_code in (200, 201):
+                data = r.json()
+                new_id = data.get("id")
+                if album_name_override is None:
+                    ALBUM_ID = new_id
+                    logger.info("Created new album '%s' with ID: %s", album_name, ALBUM_ID)
+                    return ALBUM_ID
+                else:
+                    logger.info("Created new album '%s' with ID: %s", album_name, new_id)
+                    return new_id
             else:
-                logger.info("Created new album '%s' with ID: %s", album_name, new_id)
-                return new_id
-        else:
-            logger.warning("Failed to create album: %s - %s", r.status_code, r.text)
+                logger.warning("Failed to create album: %s - %s", r.status_code, r.text)
     except Exception as e:
         logger.exception("Error managing album: %s", e)
-    
+
     return None
 
-def add_asset_to_album(asset_id: str, request: Optional[Request] = None, album_id_override: Optional[str] = None, album_name_override: Optional[str] = None) -> bool:
+async def add_asset_to_album(asset_id: str, request: Optional[Request] = None, album_id_override: Optional[str] = None, album_name_override: Optional[str] = None) -> bool:
     """Add an asset to the configured album. Returns True on success."""
     album_id = album_id_override
     if not album_id:
-        album_id = get_or_create_album(request=request, album_name_override=album_name_override)
+        album_id = await get_or_create_album(request=request, album_name_override=album_name_override)
     if not album_id or not asset_id:
         return False
-    
+
     try:
-        url = f"{SETTINGS.normalized_base_url}/albums/{album_id}/assets"
-        payload = {"ids": [asset_id]}
-        r = requests.put(url, headers={**immich_headers(request), "Content-Type": "application/json"}, 
-                         json=payload, timeout=10)
-        
-        if r.status_code == 200:
-            results = r.json()
-            # Check if any result indicates success
-            for result in results:
-                if result.get("success"):
-                    return True
-                elif result.get("error") == "duplicate":
-                    # Asset already in album, consider it success
-                    return True
-        return False
+        async with httpx.AsyncClient() as client:
+            url = f"{SETTINGS.normalized_base_url}/albums/{album_id}/assets"
+            payload = {"ids": [asset_id]}
+            r = await client.put(url, headers={**immich_headers(request), "Content-Type": "application/json"},
+                             json=payload, timeout=10.0)
+
+            if r.status_code == 200:
+                results = r.json()
+                # Check if any result indicates success
+                for result in results:
+                    if result.get("success"):
+                        return True
+                    elif result.get("error") == "duplicate":
+                        # Asset already in album, consider it success
+                        return True
+            return False
     except Exception as e:
         logger.exception("Error adding asset to album: %s", e)
         return False
 
-def immich_ping() -> bool:
+async def immich_ping() -> bool:
     """Best-effort reachability check against a few Immich endpoints."""
     if not SETTINGS.immich_api_key:
         return False
     base = SETTINGS.normalized_base_url
-    for path in ("/server-info", "/server/version", "/users/me"):
-        try:
-            r = requests.get(f"{base}{path}", headers=immich_headers(), timeout=4)
-            if 200 <= r.status_code < 400:
-                return True
-        except Exception:
-            continue
+    async with httpx.AsyncClient() as client:
+        for path in ("/server-info", "/server/version", "/users/me"):
+            try:
+                r = await client.get(f"{base}{path}", headers=immich_headers(), timeout=4.0)
+                if 200 <= r.status_code < 400:
+                    return True
+            except Exception:
+                continue
     return False
 
-def immich_bulk_check(checks: List[dict]) -> Dict[str, dict]:
+async def immich_bulk_check(checks: List[dict]) -> Dict[str, dict]:
     """Try Immich bulk upload check; return map id->result (or empty on failure)."""
     try:
-        url = f"{SETTINGS.normalized_base_url}/assets/bulk-upload-check"
-        r = requests.post(url, headers=immich_headers(), json={"assets": checks}, timeout=10)
-        if r.status_code == 200:
-            results = r.json().get("results", [])
-            return {x["id"]: x for x in results}
+        async with httpx.AsyncClient() as client:
+            url = f"{SETTINGS.normalized_base_url}/assets/bulk-upload-check"
+            r = await client.post(url, headers=immich_headers(), json={"assets": checks}, timeout=10.0)
+            if r.status_code == 200:
+                results = r.json().get("results", [])
+                return {x["id"]: x for x in results}
     except Exception:
         pass
     return {}
@@ -398,7 +408,7 @@ async def favicon() -> Response:
 async def api_ping() -> dict:
     """Connectivity test endpoint used by the UI to display a temporary banner."""
     return {
-        "ok": immich_ping(), 
+        "ok": await immich_ping(),
         "base_url": SETTINGS.normalized_base_url,
         "album_name": SETTINGS.album_name if SETTINGS.album_name else None
     }
@@ -474,7 +484,7 @@ async def api_upload(
         return JSONResponse({"status": "duplicate", "id": None}, status_code=200)
 
     await send_progress(session_id, item_id, "checking", 2, "Checking duplicates…")
-    bulk = immich_bulk_check([{"id": item_id, "checksum": checksum}])
+    bulk = await immich_bulk_check([{"id": item_id, "checksum": checksum}])
     if bulk.get(item_id, {}).get("action") == "reject" and bulk[item_id].get("reason") == "duplicate":
         asset_id = bulk[item_id].get("assetId")
         db_insert_upload(checksum, file.filename, size, device_asset_id, asset_id, created_iso)
@@ -613,11 +623,11 @@ async def api_upload(
                     if invite_token:
                         # Only add if invite specified an album; do not fallback to env default
                         if target_album_id or target_album_name:
-                            added = add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name)
+                            added = await add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name)
                             if added:
                                 status += f" (added to album '{target_album_name or target_album_id}')"
                     elif SETTINGS.album_name:
-                        if add_asset_to_album(asset_id, request=request):
+                        if await add_asset_to_album(asset_id, request=request):
                             status += f" (added to album '{SETTINGS.album_name}')"
 
                 await send_progress(session_id, item_id, "duplicate" if status == "duplicate" else "done", 100, status, asset_id)
@@ -854,7 +864,7 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
         return JSONResponse({"status": "duplicate", "id": None}, status_code=200)
 
     await send_progress(session_id_local, item_id_local, "checking", 2, "Checking duplicates…")
-    bulk = immich_bulk_check([{ "id": item_id_local, "checksum": checksum }])
+    bulk = await immich_bulk_check([{ "id": item_id_local, "checksum": checksum }])
     if bulk.get(item_id_local, {}).get("action") == "reject" and bulk[item_id_local].get("reason") == "duplicate":
         asset_id = bulk[item_id_local].get("assetId")
         db_insert_upload(checksum, file_like_name, file_size, device_asset_id, asset_id, created_iso)
@@ -981,11 +991,11 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
                 if invite_token:
                     # Only add if invite specified an album; do not fallback to env default
                     if target_album_id or target_album_name:
-                        added = add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name)
+                        added = await add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name)
                         if added:
                             status += f" (added to album '{target_album_name or target_album_id}')"
                 elif SETTINGS.album_name:
-                    if add_asset_to_album(asset_id, request=request):
+                    if await add_asset_to_album(asset_id, request=request):
                         status += f" (added to album '{SETTINGS.album_name}')"
             await send_progress(session_id_local, item_id_local, "duplicate" if status == "duplicate" else "done", 100, status, asset_id)
             if invite_token:
@@ -1073,7 +1083,8 @@ async def api_login(request: Request) -> JSONResponse:
     if not email or not password:
         return JSONResponse({"error": "missing_credentials"}, status_code=400)
     try:
-        r = requests.post(f"{SETTINGS.normalized_base_url}/auth/login", headers={"Content-Type": "application/json", "Accept": "application/json"}, json={"email": email, "password": password}, timeout=15)
+        async with httpx.AsyncClient() as client:
+            r = await client.post(f"{SETTINGS.normalized_base_url}/auth/login", headers={"Content-Type": "application/json", "Accept": "application/json"}, json={"email": email, "password": password}, timeout=15.0)
     except Exception as e:
         logger.exception("Login request failed: %s", e)
         return JSONResponse({"error": "login_failed"}, status_code=502)
@@ -1110,7 +1121,8 @@ async def logout_get(request: Request) -> RedirectResponse:
 async def api_albums(request: Request) -> JSONResponse:
     """Return list of albums if authorized; logs on 401/403."""
     try:
-        r = requests.get(f"{SETTINGS.normalized_base_url}/albums", headers=immich_headers(request), timeout=10)
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{SETTINGS.normalized_base_url}/albums", headers=immich_headers(request), timeout=10.0)
     except Exception as e:
         logger.exception("Albums request failed: %s", e)
         return JSONResponse({"error": "request_failed"}, status_code=502)
@@ -1131,7 +1143,8 @@ async def api_albums_create(request: Request) -> JSONResponse:
     if not name:
         return JSONResponse({"error": "missing_name"}, status_code=400)
     try:
-        r = requests.post(f"{SETTINGS.normalized_base_url}/albums", headers={**immich_headers(request), "Content-Type": "application/json"}, json={"albumName": name}, timeout=10)
+        async with httpx.AsyncClient() as client:
+            r = await client.post(f"{SETTINGS.normalized_base_url}/albums", headers={**immich_headers(request), "Content-Type": "application/json"}, json={"albumName": name}, timeout=10.0)
     except Exception as e:
         logger.exception("Create album failed: %s", e)
         return JSONResponse({"error": "request_failed"}, status_code=502)

@@ -59,6 +59,10 @@
       </div>
     </section>
 
+    <!-- URL Upload section -->
+    <section id="url-upload-section" class="rounded-2xl border bg-white p-6 shadow-sm dark:bg-gray-800 dark:border-gray-700 transition-colors">
+    </section>
+
     <!-- Queue summary -->
     <section id="summary" class="rounded-2xl border bg-white p-4 shadow-sm dark:bg-gray-800 dark:border-gray-700 transition-colors">
       <div class="flex flex-wrap items-end justify-between gap-2 text-sm">
@@ -94,5 +98,18 @@
   </div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/url-uploader.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      new UrlUploader('#url-upload-section', {
+        onUploadComplete: (result) => {
+          console.log('URL upload complete:', result);
+        },
+        onError: (error) => {
+          console.error('URL upload error:', error);
+        }
+      });
+    });
+  </script>
 </body>
 </html>
