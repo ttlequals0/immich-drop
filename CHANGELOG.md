@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2025-12-28
+
+### Fixed
+- Fixed container startup permission error for api_routes.py
+- Added explicit chmod in Dockerfile to ensure Python files are readable
+
+### Changed
+- Optimized httpx usage with shared AsyncClient via FastAPI lifespan for connection pooling
+- Updated api_routes.py to use shared httpx client from app state
+
 ## [1.1.0] - 2025-12-28
 
 ### Added

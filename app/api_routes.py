@@ -3,7 +3,7 @@ API Routes for immich-drop extensions
 - URL download and upload to Immich
 - Batch upload for iOS Shortcuts
 """
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 from pydantic import BaseModel
@@ -76,6 +76,7 @@ async def upload_to_immich(
     filename: str,
     content_type: str,
     config,  # Config object from main app
+    httpx_client: httpx.AsyncClient,  # Shared httpx client
     device_id: str = "immich-drop-url",
     file_created_at: Optional[str] = None,
 ) -> UploadResult:
@@ -84,94 +85,93 @@ async def upload_to_immich(
     now = file_created_at or (datetime.utcnow().isoformat() + "Z")
     device_asset_id = f"{device_id}-{sha1}"
 
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(
-                f"{config.normalized_base_url}/assets",
-                files={"assetData": (filename, file_content, content_type)},
-                data={
-                    "deviceAssetId": device_asset_id,
-                    "deviceId": device_id,
-                    "fileCreatedAt": now,
-                    "fileModifiedAt": now,
-                    "isFavorite": "false",
-                },
-                headers={
-                    "x-api-key": config.immich_api_key,
-                    "x-immich-checksum": sha1,
-                },
-                timeout=300.0,
-            )
+    try:
+        resp = await httpx_client.post(
+            f"{config.normalized_base_url}/assets",
+            files={"assetData": (filename, file_content, content_type)},
+            data={
+                "deviceAssetId": device_asset_id,
+                "deviceId": device_id,
+                "fileCreatedAt": now,
+                "fileModifiedAt": now,
+                "isFavorite": "false",
+            },
+            headers={
+                "x-api-key": config.immich_api_key,
+                "x-immich-checksum": sha1,
+            },
+            timeout=300.0,
+        )
 
-            if resp.status_code in (200, 201):
-                result = resp.json()
-                return UploadResult(
-                    filename=filename,
-                    status="success",
-                    asset_id=result.get("id"),
-                    duplicate=result.get("duplicate", False),
-                )
-            else:
-                return UploadResult(
-                    filename=filename,
-                    status="error",
-                    error=f"Immich returned {resp.status_code}: {resp.text[:200]}",
-                )
-        except Exception as e:
+        if resp.status_code in (200, 201):
+            result = resp.json()
+            return UploadResult(
+                filename=filename,
+                status="success",
+                asset_id=result.get("id"),
+                duplicate=result.get("duplicate", False),
+            )
+        else:
             return UploadResult(
                 filename=filename,
                 status="error",
-                error=str(e),
+                error=f"Immich returned {resp.status_code}: {resp.text[:200]}",
             )
+    except Exception as e:
+        return UploadResult(
+            filename=filename,
+            status="error",
+            error=str(e),
+        )
 
 
 async def add_asset_to_album(
     asset_id: str,
     album_name: str,
     config,
+    httpx_client: httpx.AsyncClient,  # Shared httpx client
 ) -> bool:
     """Add an asset to an album (creates album if needed)"""
-    async with httpx.AsyncClient() as client:
-        headers = {"x-api-key": config.immich_api_key}
+    headers = {"x-api-key": config.immich_api_key}
 
-        # Find or create album
-        albums_resp = await client.get(
+    # Find or create album
+    albums_resp = await httpx_client.get(
+        f"{config.normalized_base_url}/albums",
+        headers=headers,
+        timeout=30.0,
+    )
+
+    album_id = None
+    if albums_resp.status_code == 200:
+        albums = albums_resp.json()
+        for album in albums:
+            if album.get("albumName") == album_name:
+                album_id = album.get("id")
+                break
+
+    # Create album if not found
+    if not album_id:
+        create_resp = await httpx_client.post(
             f"{config.normalized_base_url}/albums",
             headers=headers,
+            json={"albumName": album_name},
             timeout=30.0,
         )
+        if create_resp.status_code in (200, 201):
+            album_id = create_resp.json().get("id")
 
-        album_id = None
-        if albums_resp.status_code == 200:
-            albums = albums_resp.json()
-            for album in albums:
-                if album.get("albumName") == album_name:
-                    album_id = album.get("id")
-                    break
+    if not album_id:
+        return False
 
-        # Create album if not found
-        if not album_id:
-            create_resp = await client.post(
-                f"{config.normalized_base_url}/albums",
-                headers=headers,
-                json={"albumName": album_name},
-                timeout=30.0,
-            )
-            if create_resp.status_code in (200, 201):
-                album_id = create_resp.json().get("id")
+    # Add asset to album
+    add_resp = await httpx_client.put(
+        f"{config.normalized_base_url}/albums/{album_id}/assets",
+        headers=headers,
+        json={"ids": [asset_id]},
+        timeout=30.0,
+    )
 
-        if not album_id:
-            return False
-
-        # Add asset to album
-        add_resp = await client.put(
-            f"{config.normalized_base_url}/albums/{album_id}/assets",
-            headers=headers,
-            json={"ids": [asset_id]},
-            timeout=30.0,
-        )
-
-        return add_resp.status_code in (200, 201)
+    return add_resp.status_code in (200, 201)
 
 
 # ============================================================================
@@ -197,15 +197,17 @@ def create_api_routes(config):
 
     @router.post("/upload/url", response_model=UrlUploadResponse)
     async def upload_from_url(
-        request: UrlUploadRequest,
+        url_request: UrlUploadRequest,
         background_tasks: BackgroundTasks,
+        request: Request,
     ):
         """
         Download media from a supported URL and upload to Immich
 
         Supported platforms: TikTok, Instagram, Reddit, YouTube, Twitter/X
         """
-        url = request.url.strip()
+        url = url_request.url.strip()
+        httpx_client = request.app.state.httpx_client
 
         # Validate URL
         platform = identify_platform(url)
@@ -242,15 +244,16 @@ def create_api_routes(config):
                 filename=download_result.filename,
                 content_type=download_result.content_type,
                 config=config,
+                httpx_client=httpx_client,
                 device_id=f"immich-drop-{platform}",
                 file_created_at=file_created_at,
             )
             upload_result.platform = platform
 
             # Add to album if specified or configured
-            album_name = request.album_name or getattr(config, 'album_name', None)
+            album_name = url_request.album_name or getattr(config, 'album_name', None)
             if album_name and upload_result.asset_id and upload_result.status == "success":
-                await add_asset_to_album(upload_result.asset_id, album_name, config)
+                await add_asset_to_album(upload_result.asset_id, album_name, config, httpx_client)
 
             return UrlUploadResponse(
                 success=upload_result.status == "success",
@@ -264,15 +267,17 @@ def create_api_routes(config):
 
     @router.post("/upload/urls", response_model=BatchUploadResponse)
     async def upload_from_urls(
-        request: UrlBatchUploadRequest,
+        batch_request: UrlBatchUploadRequest,
         background_tasks: BackgroundTasks,
+        request: Request,
     ):
         """
         Download and upload multiple URLs to Immich
 
         Max 10 URLs per request
         """
-        urls = [u.strip() for u in request.urls if u.strip()]
+        urls = [u.strip() for u in batch_request.urls if u.strip()]
+        httpx_client = request.app.state.httpx_client
 
         if not urls:
             raise HTTPException(status_code=400, detail="No URLs provided")
@@ -318,15 +323,16 @@ def create_api_routes(config):
                     filename=download_result.filename,
                     content_type=download_result.content_type,
                     config=config,
+                    httpx_client=httpx_client,
                     device_id=f"immich-drop-{platform}",
                     file_created_at=file_created_at,
                 )
                 upload_result.platform = platform
 
                 # Add to album
-                album_name = request.album_name or getattr(config, 'album_name', None)
+                album_name = batch_request.album_name or getattr(config, 'album_name', None)
                 if album_name and upload_result.asset_id and upload_result.status == "success":
-                    await add_asset_to_album(upload_result.asset_id, album_name, config)
+                    await add_asset_to_album(upload_result.asset_id, album_name, config, httpx_client)
 
                 results.append(upload_result)
 
@@ -347,6 +353,7 @@ def create_api_routes(config):
 
     @router.post("/upload/batch", response_model=BatchUploadResponse)
     async def upload_batch_files(
+        request: Request,
         files: List[UploadFile] = File(...),
         album_name: Optional[str] = Form(None),
     ):
@@ -355,6 +362,8 @@ def create_api_routes(config):
 
         POST multipart/form-data with one or more files
         """
+        httpx_client = request.app.state.httpx_client
+
         if not files:
             raise HTTPException(status_code=400, detail="No files provided")
 
@@ -373,13 +382,14 @@ def create_api_routes(config):
                 filename=filename,
                 content_type=content_type,
                 config=config,
+                httpx_client=httpx_client,
                 device_id="ios-shortcut",
             )
 
             # Add to album
             target_album = album_name or getattr(config, 'album_name', None)
             if target_album and upload_result.asset_id and upload_result.status == "success":
-                await add_asset_to_album(upload_result.asset_id, target_album, config)
+                await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client)
 
             results.append(upload_result)
 
@@ -397,12 +407,14 @@ def create_api_routes(config):
 
     @router.post("/upload/file", response_model=UploadResult)
     async def upload_single_file(
+        request: Request,
         file: UploadFile = File(...),
         album_name: Optional[str] = Form(None),
     ):
         """
         Upload a single file - simpler endpoint for iOS Shortcuts
         """
+        httpx_client = request.app.state.httpx_client
         contents = await file.read()
         filename = file.filename or f"upload_{datetime.utcnow().timestamp()}"
         content_type = file.content_type or "application/octet-stream"
@@ -412,12 +424,13 @@ def create_api_routes(config):
             filename=filename,
             content_type=content_type,
             config=config,
+            httpx_client=httpx_client,
             device_id="ios-shortcut",
         )
 
         target_album = album_name or getattr(config, 'album_name', None)
         if target_album and upload_result.asset_id and upload_result.status == "success":
-            await add_asset_to_album(upload_result.asset_id, target_album, config)
+            await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client)
 
         return upload_result
 
