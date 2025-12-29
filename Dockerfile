@@ -6,6 +6,9 @@ WORKDIR /immich_drop
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+# Install system dependencies (ffmpeg for yt-dlp video processing)
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+
 # Install Python deps
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt \
@@ -14,6 +17,9 @@ RUN pip install --no-cache-dir -r /app/requirements.txt \
 # Copy app code
 COPY . /immich_drop
 
+# Ensure all source files are readable (fix permission issues)
+RUN chmod -R 644 /immich_drop/*.py /immich_drop/app/*.py /immich_drop/frontend/* && \
+    chmod 755 /immich_drop /immich_drop/app /immich_drop/frontend
 
 # Data dir for SQLite (state.db)
 RUN mkdir -p /data

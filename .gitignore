@@ -1,1 +1,37 @@
+.env
 *.env
+agent.md
+docker-compose.yml
+# Python cache and build artifacts
+__pycache__/
+app/__pycache__/*
+*.py[cod]
+*.pyo
+*.so
+.mypy_cache/
+.pytest_cache/
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs and IDE
+.venv/
+.idea/
+.vscode/
+.DS_Store
+
+# Local data/dbs (do not commit local state)
+data/
+/data/
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/chunks/
+state.db
+
+# Logs
+*.log
+
+# Claude AI config
+CLAUDE.md

@@ -1,26 +1,29 @@
 # Immich Drop Uploader
 
-A tiny, zero-login web app for collecting photos/videos into your **Immich** server.
+A tiny web app for collecting photos/videos into your **Immich** server.
+Admin users log in to create public invite links; invite links are always public-by-URL. A public uploader page is optional and disabled by default.
 
 ![Immich Drop Uploader Dark Mode UI](./screenshot.png)
 
 ## Features
 
-- **No accounts** — open the page, drop files, done  
-- **Queue with progress** via WebSocket (success / duplicate / error)  
-- **Duplicate prevention** (local SHA‑1 cache + optional Immich bulk‑check)  
-- **Original dates preserved** (EXIF → `fileCreatedAt` / `fileModifiedAt`)  
-- **Mobile‑friendly** 
-- **.env‑only config** (clean deploys) + Docker/Compose  
-- **Privacy‑first**: never lists server media; UI only shows the current session
-- **Dark mode support** — automatically detects system preference, with manual toggle
-- **Album integration** — auto-adds uploads to a configured album (creates if needed)
+- **Invite Links:** public-by-URL links for uploads; one-time or multi-use
+- **Manage Links:** search/sort, enable/disable, delete, edit name/expiry
+- **Row Actions:** icon-only actions with tooltips (Open, Copy, Details, QR, Save)
+- **Passwords (optional):** protect invites with a password gate
+- **Albums (optional):** upload into a specific album (auto-create supported)
+- **Duplicate Prevention:** local SHA‑1 cache (+ optional Immich bulk-check)
+- **Progress Queue:** WebSocket updates; retry failed items
+- **Chunked Uploads (optional):** large-file support with configurable chunk size
+- **Privacy-first:** never lists server media; session-local uploads only
+- **Mobile + Dark Mode:** responsive UI, safe-area padding, persistent theme
 
 ---
 
 ## Table of contents
 - [Quick start](#quick-start)
 - [New Features](#new-features)
+- [Chunked Uploads](#chunked-uploads)
 - [Architecture](#architecture)
 - [Folder structure](#folder-structure)
 - [Requirements](#requirements)
@@ -34,29 +37,40 @@ A tiny, zero-login web app for collecting photos/videos into your **Immich** ser
 
 ---
 ## Quick start
-Copy the docker-compose.yml and the .env file to a common folder,
-update the .env file before executing the CLI commands to quick start the container.
+You can run without a `.env` file by putting all settings in `docker-compose.yml` (recommended for deploys).
+Use a `.env` file only for local development.
 
-### docker-compose.yml
+### docker-compose.yml (deploy without .env)
 ```yaml
 version: "3.9"
 
 services:
   immich-drop:
-    image: ttlequals0/immich-drop:latest
+    image: ghcr.io/nasogaa/immich-drop:latest
     pull_policy: always
     container_name: immich-drop
     restart: unless-stopped
 
-    # Optional: Set album name for auto-adding uploads
+    # Configure all settings here (no .env required)
     environment:
-      IMMICH_ALBUM_NAME: dead-drop  # Optional: uploads will be added to this album
 
-    # Load all variables from your repo's .env (PORT, IMMICH_BASE_URL, IMMICH_API_KEY, etc.)
-    env_file:
-      - ./.env
+      # Immich connection (must include /api)
+      IMMICH_BASE_URL: https://immich.example.com/api
+      IMMICH_API_KEY: ${IMMICH_API_KEY}
 
-    # Expose the app on the same port as configured in .env (defaults to 8080)
+      # Optional behavior
+      IMMICH_ALBUM_NAME: dead-drop
+      PUBLIC_UPLOAD_PAGE_ENABLED: "false"   # keep disabled by default
+      PUBLIC_BASE_URL: https://drop.example.com
+
+      # Large files: chunked uploads (bypass 100MB proxy limits)
+      CHUNKED_UPLOADS_ENABLED: "false"      # enable chunked uploads
+      CHUNK_SIZE_MB: "95"                  # per-chunk size (MB)
+
+      # App internals
+      SESSION_SECRET: ${SESSION_SECRET}
+
+    # Expose the app on the host
     ports:
       - 8080:8080
 
@@ -76,18 +90,7 @@ volumes:
   immich_drop_data:
 ```
 
-### .env 
-
 ```
-HOST=0.0.0.0
-PORT=8080
-IMMICH_BASE_URL=http://REPLACE_ME:2283/api
-IMMICH_API_KEY=REPLACE_ME
-MAX_CONCURRENT=3
-IMMICH_ALBUM_NAME=dead-drop  # Optional: auto-add uploads to this album
-STATE_DB=/data/state.db
-```
-
 ### CLI
 ```bash
 docker compose pull
@@ -95,25 +98,50 @@ docker compose up -d
 ```
 ---
 
-## New Features
+## What's New
+
+### v0.5.0 – Manage Links overhaul
+- In-panel bulk actions footer (Delete/Enable/Disable stay inside the box)
+- Per-row icon actions with tooltips; Save button lights up only on changes
+- Per-row QR modal; Details modal close fixed and reliable
+- Auto-refresh after creating a link; new row is highlighted and scrolled into view
+- Expiry save fix: stores end-of-day to avoid off-by-one date issues
+
+Roadmap highlight
+- We’d like to add a per-user UI and remove reliance on a fixed API key by allowing users to authenticate and provide their own Immich API tokens. This is not in scope for the initial versions but aligns with future direction.
+- The frontend automatically switches to chunked mode only for files larger than the configured chunk size.
+
+### 📱 Device‑Flexible HMI (New)
+- Fully responsive UI with improved spacing and wrapping for small and large screens.
+- Mobile‑safe file picker and a sticky bottom “Choose files” bar on phones.
+- Safe‑area padding for devices with notches; refined dark/light theme behavior.
+- Desktop keeps the dropzone clickable; touch devices avoid accidental double‑open.
+
+### ♻️ Reliability & Quality of Life (New)
+- Retry button to re‑attempt any failed upload without re‑selecting the file.
+- Progress and status updates are more resilient to late/reordered WebSocket events.
+- Invites can be created without an album, keeping uploads unassigned when preferred.
+
+### Last 8 Days – Highlights
+- Added chunked uploads with configurable chunk size.
+- Added optional passwords for invite links with in‑UI unlock prompt.
+- Responsive HMI overhaul: mobile‑safe picker, sticky mobile action bar, safe‑area support.
+- Retry for failed uploads and improved progress handling.
+- Support for invites with no album association.
 
 ### 🌙 Dark Mode
-- Automatically detects system dark/light preference on first visit
-- Manual toggle button in the header (sun/moon icon)
-- Preference saved in browser localStorage
-- Smooth color transitions for better UX
-- All UI elements properly themed for both modes
+- Automatic or manual toggle; persisted preference
 
 ### 📁 Album Integration
-- Configure `IMMICH_ALBUM_NAME` environment variable to auto-add uploads to a specific album
-- Album is automatically created if it doesn't exist
-- Efficient caching of album ID to minimize API calls
-- Visual feedback showing which album uploads are being added to
-- Works seamlessly with existing duplicate detection
+- Auto-create + assign album if configured; optional invites without album
 
-### 🐛 Bug Fixes
-- Fixed WebSocket disconnection error that occurred when clients closed connections
-- Improved error handling for edge cases
+---
+
+## Chunked Uploads
+
+- Enable chunked uploads by setting `CHUNKED_UPLOADS_ENABLED=true`.
+- Configure chunk size with `CHUNK_SIZE_MB` (default: `95`). The client only uses chunked mode for files larger than this.
+- Intended to bypass upstream limits (e.g., 100MB) while preserving duplicate checks, EXIF timestamps, album add, and per‑item progress via WebSocket.
 
 ---
 
@@ -133,19 +161,25 @@ docker compose up -d
 
 ```
 immich_drop/
-├─ app/                    # FastAPI application (Python package)
-│  ├─ __init__.py
-│  ├─ app.py               # uvicorn app:app
-│  └─ config.py            # loads .env from repo root
-├─ frontend/               # static UI served at /static
-│  ├─ index.html
-│  └─ app.js
-├─ main.py                 # thin entrypoint (python main.py)
-├─ requirements.txt        # Python deps
-├─ .env                    # single config file (see below)
+├─ app/                     # FastAPI application (Python package)
+│  ├─ app.py                # ASGI app (uvicorn entry: app.app:app)
+│  └─ config.py             # Settings loader (reads .env/env)
+├─ frontend/                # Static UI (served at /static)
+│  ├─ index.html            # Public uploader (optional)
+│  ├─ login.html            # Login page (admin)
+│  ├─ menu.html             # Admin menu (create invites)
+│  ├─ invite.html           # Public invite upload page
+│  ├─ app.js                # Uploader logic (drop/queue/upload/ws)
+│  ├─ header.js             # Shared header (theme + ping + banner)
+│  └─ favicon.png           # Tab icon (optional)
+├─ data/                    # Local dev data dir (bind to /data in Docker)
+├─ main.py                  # Thin dev entrypoint (python main.py)
+├─ requirements.txt         # Python dependencies
 ├─ Dockerfile
 ├─ docker-compose.yml
-└─ README.md
+├─ .env.example             # Example dev environment (optional)
+├─ README.md
+└─ screenshot.png           # UI screenshot for README
 ```
 
 ---
@@ -156,24 +190,53 @@ immich_drop/
 - An **Immich** server + **API key**
 
 ---
-## Configuration (.env)
+# Local dev quickstart
+
+## Development
+
+Run with live reload:
+
+```bash
+python main.py
+```
+
+The backend contains docstrings so you can generate docs later if desired.
+
+---
+
+## Dev Configuration (.env)
 
 ```ini
-# Server
-HOST=0.0.0.0 
+# Server (dev only)
+HOST=0.0.0.0
 PORT=8080
 
 # Immich connection (include /api)
 IMMICH_BASE_URL=http://REPLACE_ME:2283/api
-IMMICH_API_KEY=REPLACE_ME
+IMMICH_API_KEY=ADD-YOUR-API-KEY   # needs: asset.upload; for albums also: album.create, album.read, albumAsset.create
 MAX_CONCURRENT=3
 
-# Optional: Album name for auto-adding uploads (creates if doesn't exist)
+# Public uploader page (optional) — disabled by default
+PUBLIC_UPLOAD_PAGE_ENABLED=TRUE
+
+# Album (optional): auto-add uploads from public uploader to this album (creates if needed)
 IMMICH_ALBUM_NAME=dead-drop
 
-# Local dedupe cache
-STATE_DB=./data/state.db         # local dev -> ./state.db (data folder is created in docker image)
-# In Docker this is overridden to /data/state.db by docker-compose.yml
+# Local dedupe cache (SQLite)
+STATE_DB=./data/state.db
+
+# Base URL for generating absolute invite links (recommended for production)
+# e.g., PUBLIC_BASE_URL=https://photos.example.com
+#PUBLIC_BASE_URL=
+
+# Session and security
+SESSION_SECRET=SET-A-STRONG-RANDOM-VALUE
+LOG_LEVEL=DEBUG
+
+# Chunked uploads (optional)
+CHUNKED_UPLOADS_ENABLED=true
+CHUNK_SIZE_MB=95
+
 ```
 
 
@@ -196,52 +259,20 @@ You can keep a checked‑in `/.env.example` with the keys above for onboarding.
 
 ---
 
-
-## Mobile notes
-
-- Uses a **label‑wrapped input** + short **ghost‑click suppression** so the system picker does **not** re‑open after tapping **Done** (fixes iOS/Android quirks).  
-- Drag‑and‑drop is desktop‑oriented; on touch, use **Choose files**.
-
----
-
-## Troubleshooting
-
-**Uploads don't start on phones / picker re‑opens**  
-– Hard‑refresh; current UI suppresses ghost clicks and resets the input.  
-– If using a PWA/WebView, test in Safari/Chrome directly to rule out container quirks.
-
-**WebSocket connects/disconnects in a loop**  
-– Match schemes: `ws://` for `http://`, `wss://` for `https://`.  
-– If behind a reverse proxy, ensure it forwards WebSockets.
-
-**413 Request Entity Too Large**  
-– If running behind nginx/Traefik/etc., bump body size limits (`client_max_body_size` for nginx).
-
-**/assets returns 401**  
-– Check `IMMICH_API_KEY` and ensure the base URL includes `/api` (e.g., `http://<host>:2283/api`).
-
-**Duplicate detected but you expect an upload**  
-– The proxy caches SHA‑1 in `state.db`. For a fresh run, delete that DB or point `STATE_DB` to a new file.
-
----
-
 ## Security notes
 
-- The app is **unauthenticated** by design. Share the URL only with trusted people or keep it on a private network/VPN.  
+- The menu and invite creation are behind login. Logout clears the session.  
+- Invite links are public by URL; share only with intended recipients.  
+- The default uploader page at `/` is disabled unless `PUBLIC_UPLOAD_PAGE_ENABLED=true`.  
 - The Immich API key remains **server‑side**; the browser never sees it.  
-- No browsing of uploaded media; only ephemeral session state is shown.
+- No browsing of uploaded media; only ephemeral session state is shown.  
+- Run behind HTTPS with a reverse proxy and restrict CORS to your domain(s).
 
----
+## Usage flow
 
-## Development
-
-Run with live reload:
-
-```bash
-python main.py
-```
-
-The backend contains docstrings so you can generate docs later if desired.
+- Admin: Login → Menu → Create invite link (optionally one‑time / expiry / album) → Share link or QR.  
+- Guest: Open invite link → Drop files → Upload progress and results shown.  
+- Optional: Enable public uploader and set `IMMICH_ALBUM_NAME` for a default landing page.
 
 ---
 

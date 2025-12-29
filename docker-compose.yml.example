@@ -8,10 +8,10 @@ services:
 
     environment:
       #immich drop server ip
-      PUBLIC_BASE_URL: http://192.168.8.60:8080
-      # Immich connection
-      IMMICH_BASE_URL: http://192.168.8.60:2283/api
-      IMMICH_API_KEY: n7lO2oRFVhMXqI10YL8nfelIC9lZ8ND8AxZqx1XHiA
+      IMMICH_BASE_URL: https://immich.example.com/api
+      IMMICH_API_KEY: ${IMMICH_API_KEY}
+
+      PUBLIC_BASE_URL: https://drop.example.com
       #Enable/Disable Public upload page to folder
       PUBLIC_UPLOAD_PAGE_ENABLED: false
       IMMICH_ALBUM_NAME: dead-drop
