@@ -129,6 +129,7 @@ Upload content from social media platforms directly via the web UI or API:
 **API Endpoints:**
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
+| `/api/upload/base64` | POST | Upload base64-encoded file (best for iOS Shortcuts) |
 | `/api/upload/url` | POST | Download and upload from single URL |
 | `/api/upload/urls` | POST | Batch URL downloads (max 10) |
 | `/api/supported-platforms` | GET | List supported platforms |

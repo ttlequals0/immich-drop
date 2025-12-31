@@ -2,7 +2,9 @@
 
 These shortcuts allow you to share photos, videos, and social media links directly to your Immich server.
 
-## Combined Shortcut: Save to Immich (Recommended)
+## Combined Shortcut: Save to Immich (Recommended - Base64 Method)
+
+**Note:** This uses the base64 endpoint which is more reliable than multipart form uploads from iOS Shortcuts.
 
 **Purpose**: Single shortcut that handles both file uploads AND URL downloads from TikTok, Instagram, Reddit, etc.
 
@@ -31,64 +33,117 @@ These shortcuts allow you to share photos, videos, and social media links direct
         "url": "[Shortcut Input]"
       }
 
-   4. Get Dictionary from [Contents of URL]
+   4. Get Dictionary from Input
+      Input: [Contents of URL]
 
-   5. If [success] equals [true]
+   5. Get Dictionary Value
+      Get Value for Key: success
+      in Dictionary: [Dictionary]
 
-      6. Show Notification
+   6. If [Dictionary Value] equals 1
+
+      7. Get Dictionary Value
+         Get Value for Key: result
+         in Dictionary: [Dictionary]
+
+      8. Get Dictionary Value
+         Get Value for Key: filename
+         in Dictionary: [Dictionary Value]
+
+      9. Show Alert
          Title: Saved to Immich
-         Body: [result.filename]
+         Message: [Dictionary Value]
+         Show Cancel Button: OFF
 
-   7. Otherwise
+   10. Otherwise
 
-      8. Show Alert
-         Title: Upload Failed
-         Message: [error]
+      11. Get Dictionary Value
+          Get Value for Key: error
+          in Dictionary: [Dictionary]
 
-   9. End If
+      12. Show Alert
+          Title: Upload Failed
+          Message: [Dictionary Value]
 
-10. Otherwise
+   13. End If
+
+14. Otherwise
 
    =============== FILE PATH (loops for multiple files) ===============
 
-   11. Set variable [uploadCount] to 0
+   15. Number
+       Value: 0
 
-   12. Set variable [errorCount] to 0
+   16. Set Variable
+       Variable Name: uploadCount
+       (uses Number output above)
 
-   13. Repeat with Each item in [Shortcut Input]
+   17. Number
+       Value: 0
 
-      14. Get Contents of URL
-          URL: https://YOUR_IMMICH_DROP_URL/api/upload/file
+   18. Set Variable
+       Variable Name: errorCount
+       (uses Number output above)
+
+   19. Repeat with Each item in [Shortcut Input]
+
+      20. Base64 Encode
+          Input: [Repeat Item]
+          Line Breaks: None
+
+      21. Get Name
+          Input: [Repeat Item]
+
+      22. Set Variable
+          Variable Name: currentFilename
+
+      23. Get Contents of URL
+          URL: https://YOUR_IMMICH_DROP_URL/api/upload/base64
           Method: POST
-          Request Body: Form
-          Add new field:
-            - Type: File
-            - Key: file
-            - Value: [Repeat Item]
+          Request Body: JSON
+          Add fields:
+            - Key: data
+              Type: Text
+              Value: [Base64 Encoded]
+            - Key: filename
+              Type: Text
+              Value: [currentFilename]
 
-      15. Get Dictionary from [Contents of URL]
+      24. Get Dictionary from Input
+          Input: [Contents of URL]
 
-      16. If [status] equals "success"
+      25. Get Dictionary Value
+          Get Value for Key: status
+          in Dictionary: [Dictionary]
 
-          17. Calculate [uploadCount] + 1
+      26. If [Dictionary Value] equals "success"
 
-          18. Set variable [uploadCount] to [Calculation Result]
+          27. Calculate
+              Calculate: [uploadCount] + 1
 
-      19. Otherwise
+          28. Set Variable
+              Variable Name: uploadCount
+              (uses Calculation Result)
 
-          20. Calculate [errorCount] + 1
+      29. Otherwise
 
-          21. Set variable [errorCount] to [Calculation Result]
+          30. Calculate
+              Calculate: [errorCount] + 1
 
-      22. End If
+          31. Set Variable
+              Variable Name: errorCount
+              (uses Calculation Result)
 
-   23. End Repeat
+      32. End If
 
-   24. Show Notification
+   33. End Repeat
+
+   34. Show Alert
        Title: Immich Upload Complete
-       Body: [uploadCount] uploaded, [errorCount] failed
+       Message: [uploadCount] uploaded, [errorCount] failed
+       Show Cancel Button: OFF
 
-25. End If
+35. End If
 ```
 
 ### Usage
@@ -113,41 +168,79 @@ These shortcuts allow you to share photos, videos, and social media links direct
 
 If you prefer simpler, single-purpose shortcuts:
 
-### File Upload Only
+### File Upload Only (Base64 Method)
 
 ```
 1. Receive [Images, Media, Files] input from [Share Sheet]
    - Show in Share Sheet: ON
 
-2. Set variable [uploadCount] to 0
+2. Number
+   Value: 0
 
-3. Set variable [errorCount] to 0
+3. Set Variable
+   Variable Name: uploadCount
 
-4. Repeat with Each item in [Shortcut Input]
+4. Number
+   Value: 0
 
-   5. Get Contents of URL
-      URL: https://YOUR_IMMICH_DROP_URL/api/upload/file
-      Method: POST
-      Request Body: Form
-      - Type: File
-      - Key: file
-      - Value: [Repeat Item]
+5. Set Variable
+   Variable Name: errorCount
 
-   6. Get Dictionary from [Contents of URL]
+6. Repeat with Each item in [Shortcut Input]
 
-   7. If [status] equals "success"
-      8. Calculate [uploadCount] + 1
-      9. Set variable [uploadCount] to [Calculation Result]
-   10. Otherwise
-      11. Calculate [errorCount] + 1
-      12. Set variable [errorCount] to [Calculation Result]
-   13. End If
+   7. Base64 Encode
+      Input: [Repeat Item]
+      Line Breaks: None
 
-14. End Repeat
+   8. Get Name
+      Input: [Repeat Item]
 
-15. Show Notification
+   9. Set Variable
+      Variable Name: currentFilename
+
+   10. Get Contents of URL
+       URL: https://YOUR_IMMICH_DROP_URL/api/upload/base64
+       Method: POST
+       Request Body: JSON
+       Add fields:
+         - Key: data
+           Type: Text
+           Value: [Base64 Encoded]
+         - Key: filename
+           Type: Text
+           Value: [currentFilename]
+
+   11. Get Dictionary from Input
+       Input: [Contents of URL]
+
+   12. Get Dictionary Value
+       Get Value for Key: status
+       in Dictionary: [Dictionary]
+
+   13. If [Dictionary Value] equals "success"
+
+       14. Calculate
+           Calculate: [uploadCount] + 1
+
+       15. Set Variable
+           Variable Name: uploadCount
+
+   16. Otherwise
+
+       17. Calculate
+           Calculate: [errorCount] + 1
+
+       18. Set Variable
+           Variable Name: errorCount
+
+   19. End If
+
+20. End Repeat
+
+21. Show Alert
     Title: Immich Upload
-    Body: [uploadCount] uploaded, [errorCount] failed
+    Message: [uploadCount] uploaded, [errorCount] failed
+    Show Cancel Button: OFF
 ```
 
 ### URL Upload Only
@@ -166,21 +259,39 @@ If you prefer simpler, single-purpose shortcuts:
      "url": "[Shortcut Input]"
    }
 
-3. Get Dictionary from [Contents of URL]
+3. Get Dictionary from Input
+   Input: [Contents of URL]
 
-4. If [success] equals [true]
+4. Get Dictionary Value
+   Get Value for Key: success
+   in Dictionary: [Dictionary]
 
-   5. Show Notification
+5. If [Dictionary Value] equals 1
+
+   6. Get Dictionary Value
+      Get Value for Key: result
+      in Dictionary: [Dictionary]
+
+   7. Get Dictionary Value
+      Get Value for Key: filename
+      in Dictionary: [Dictionary Value]
+
+   8. Show Alert
       Title: Saved to Immich
-      Body: [result.filename]
+      Message: [Dictionary Value]
+      Show Cancel Button: OFF
 
-6. Otherwise
+9. Otherwise
 
-   7. Show Alert
-      Title: Upload Failed
-      Message: [error]
+   10. Get Dictionary Value
+       Get Value for Key: error
+       in Dictionary: [Dictionary]
 
-8. End If
+   11. Show Alert
+       Title: Upload Failed
+       Message: [Dictionary Value]
+
+12. End If
 ```
 
 
@@ -246,6 +357,7 @@ Add `album_name` to save uploads to a specific album:
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
+| `/api/upload/base64` | POST | Upload base64-encoded file (JSON: data, filename) - Recommended for iOS |
 | `/api/upload/file` | POST | Upload single file (Form: file) |
 | `/api/upload/batch` | POST | Upload multiple files (Form: files[]) |
 | `/api/upload/url` | POST | Download and upload from URL (JSON: url) |

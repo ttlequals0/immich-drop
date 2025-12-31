@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2025-12-31
+
+### Added
+- Platform cookie management for authenticated social media downloads
+  - New "Platform Cookies" section in admin menu
+  - Supports Instagram, TikTok, Twitter/X, Reddit, and YouTube
+  - Paste raw cookie strings from browser DevTools
+  - Automatically converts to Netscape format for yt-dlp
+- New API endpoints:
+  - `GET /api/cookies` - List configured platform cookies
+  - `POST /api/cookies` - Create or update platform cookie
+  - `DELETE /api/cookies/{platform}` - Delete platform cookie
+- Cookie files stored in `/data/cookies/` with restrictive permissions
+
+### Changed
+- yt-dlp now applies cookies to all supported platforms (previously Instagram only)
+- Batch URL downloads use cookies when all URLs are from the same platform
+
+## [1.1.3] - 2025-12-28
+
+### Added
+- New `/api/upload/base64` endpoint for iOS Shortcuts file uploads
+  - Accepts JSON body with base64-encoded file data
+  - More reliable than multipart form uploads from iOS Shortcuts
+  - Supports data URL format (e.g., `data:image/jpeg;base64,...`)
+
+### Changed
+- Updated iOS Shortcuts documentation with base64 upload method
+- Improved iOS Shortcuts instructions with correct action syntax
+
 ## [1.1.2] - 2025-12-28
 
 ### Fixed

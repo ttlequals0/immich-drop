@@ -118,6 +118,47 @@
       </div>
     </section>
 
+    <!-- Platform Cookies for authenticated downloads -->
+    <section class="rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 space-y-3">
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <h2 class="text-lg font-medium">Platform Cookies</h2>
+        <button id="btnRefreshCookies" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600">Refresh</button>
+      </div>
+      <p class="text-sm text-gray-500 dark:text-gray-400">
+        Add cookies for authenticated downloads from social media platforms.
+        Paste the raw cookie header from your browser's developer tools (Network tab > Request Headers > Cookie).
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div>
+          <div class="text-sm font-medium mb-1">Platform</div>
+          <select id="cookiePlatform" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700">
+            <option value="">Select platform...</option>
+          </select>
+        </div>
+        <div class="md:col-span-2">
+          <div class="text-sm font-medium mb-1">Cookie String</div>
+          <textarea id="cookieString" rows="2" placeholder="sessionid=abc123; csrftoken=xyz789; ..." class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700 text-sm font-mono"></textarea>
+        </div>
+        <div>
+          <button id="btnSaveCookie" class="w-full rounded-xl bg-black text-white px-4 py-3 dark:bg-white dark:text-black">Save Cookie</button>
+        </div>
+      </div>
+      <div id="cookieResult" class="hidden rounded-xl border p-3 text-sm"></div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left border-b dark:border-gray-700">
+              <th class="py-2">Platform</th>
+              <th class="py-2">Cookie Preview</th>
+              <th class="py-2">Updated</th>
+              <th class="py-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="cookiesTBody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="text-xs text-gray-500">
       If album listing or creation is forbidden by your token, specify a fixed album in the .env file as IMMICH_ALBUM_NAME.
     </section>
@@ -455,6 +496,141 @@
 
     // Initial load
     loadInvites();
+
+    // --- Platform Cookies UI logic ---
+    const cookiePlatform = document.getElementById('cookiePlatform');
+    const cookieString = document.getElementById('cookieString');
+    const btnSaveCookie = document.getElementById('btnSaveCookie');
+    const btnRefreshCookies = document.getElementById('btnRefreshCookies');
+    const cookiesTBody = document.getElementById('cookiesTBody');
+    const cookieResult = document.getElementById('cookieResult');
+    let COOKIES = [];
+    let PLATFORMS = [];
+
+    function showCookieResult(kind, text) {
+      cookieResult.className = 'rounded-xl border p-3 text-sm ' + (kind === 'ok'
+        ? 'border-green-200 bg-green-50 text-green-700 dark:bg-green-900 dark:border-green-700 dark:text-green-300'
+        : 'border-red-200 bg-red-50 text-red-700 dark:bg-red-900 dark:border-red-700 dark:text-red-300');
+      cookieResult.textContent = text;
+      cookieResult.classList.remove('hidden');
+      setTimeout(() => { cookieResult.classList.add('hidden'); }, 3000);
+    }
+
+    async function loadCookies() {
+      try {
+        const r = await fetch('/api/cookies');
+        const j = await r.json();
+        COOKIES = (j && j.items) ? j.items : [];
+        PLATFORMS = (j && j.platforms) ? j.platforms : [];
+        // Populate platform dropdown
+        cookiePlatform.innerHTML = '<option value="">Select platform...</option>' +
+          PLATFORMS.map(p => `<option value="${p}">${p.charAt(0).toUpperCase() + p.slice(1)}</option>`).join('');
+      } catch {
+        COOKIES = [];
+        PLATFORMS = [];
+      }
+      renderCookies();
+    }
+
+    function fmtDate(iso) {
+      try {
+        const d = new Date(iso);
+        return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: '2-digit' });
+      } catch {
+        return '-';
+      }
+    }
+
+    function renderCookies() {
+      if (COOKIES.length === 0) {
+        cookiesTBody.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-gray-500">No cookies configured. Add one above to enable authenticated downloads.</td></tr>';
+        return;
+      }
+      cookiesTBody.innerHTML = COOKIES.map(c => {
+        const preview = c.cookie_preview || (c.cookie_string ? c.cookie_string.slice(0, 40) + '...' : '');
+        return `
+          <tr class="border-b dark:border-gray-800" data-platform="${c.platform}">
+            <td class="py-2 font-medium">${c.platform.charAt(0).toUpperCase() + c.platform.slice(1)}</td>
+            <td class="py-2 font-mono text-xs text-gray-600 dark:text-gray-400">${preview}</td>
+            <td class="py-2">${fmtDate(c.updated_at)}</td>
+            <td class="py-2">
+              <div class="flex items-center gap-1">
+                <button class="btnEditCookie group relative rounded-xl border px-2 py-1 text-xs dark:border-gray-600 inline-flex items-center" data-platform="${c.platform}" data-cookie="${(c.cookie_string || '').replaceAll('"', '&quot;')}" aria-label="Edit cookie">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                  <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded bg-black text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 dark:bg-gray-700">Edit</span>
+                </button>
+                <button class="btnDeleteCookie group relative rounded-xl border px-2 py-1 text-xs border-red-400 text-red-600 dark:border-red-600 inline-flex items-center" data-platform="${c.platform}" aria-label="Delete cookie">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                  <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded bg-black text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 dark:bg-gray-700">Delete</span>
+                </button>
+              </div>
+            </td>
+          </tr>`;
+      }).join('');
+
+      // Wire edit buttons
+      cookiesTBody.querySelectorAll('.btnEditCookie').forEach(btn => {
+        btn.onclick = () => {
+          const platform = btn.getAttribute('data-platform');
+          const cookie = btn.getAttribute('data-cookie');
+          cookiePlatform.value = platform;
+          cookieString.value = cookie;
+          cookieString.focus();
+        };
+      });
+
+      // Wire delete buttons
+      cookiesTBody.querySelectorAll('.btnDeleteCookie').forEach(btn => {
+        btn.onclick = async () => {
+          const platform = btn.getAttribute('data-platform');
+          if (!confirm(`Delete cookies for ${platform}?`)) return;
+          try {
+            const r = await fetch(`/api/cookies/${platform}`, { method: 'DELETE' });
+            if (!r.ok) throw new Error('Delete failed');
+            showCookieResult('ok', `Deleted cookies for ${platform}`);
+            await loadCookies();
+          } catch (e) {
+            showCookieResult('err', String(e.message || e));
+          }
+        };
+      });
+    }
+
+    btnSaveCookie.onclick = async () => {
+      const platform = cookiePlatform.value.trim();
+      const cookie = cookieString.value.trim();
+      if (!platform) {
+        showCookieResult('err', 'Please select a platform');
+        return;
+      }
+      if (!cookie) {
+        showCookieResult('err', 'Please enter a cookie string');
+        return;
+      }
+      try {
+        const r = await fetch('/api/cookies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ platform, cookie_string: cookie })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          showCookieResult('err', j.error || 'Save failed');
+          return;
+        }
+        showCookieResult('ok', `Saved cookies for ${platform}`);
+        cookiePlatform.value = '';
+        cookieString.value = '';
+        await loadCookies();
+      } catch (e) {
+        showCookieResult('err', String(e.message || e));
+      }
+    };
+
+    btnRefreshCookies.onclick = loadCookies;
+
+    // Load cookies on page load
+    loadCookies();
   </script>
 </body>
 </html>

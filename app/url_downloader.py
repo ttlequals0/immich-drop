@@ -106,6 +106,10 @@ async def download_from_url(
         "--no-mtime",  # Don't use server mtime
     ]
 
+    # Apply cookies for any platform if provided
+    if cookies_file and os.path.exists(cookies_file):
+        cmd.extend(["--cookies", cookies_file])
+
     # Platform-specific options
     if platform == 'tiktok':
         # Download without watermark when possible
@@ -116,9 +120,6 @@ async def download_from_url(
         cmd.extend([
             "--format", "best",
         ])
-        # Instagram often requires cookies for stories
-        if cookies_file and os.path.exists(cookies_file):
-            cmd.extend(["--cookies", cookies_file])
     elif platform == 'reddit':
         cmd.extend([
             "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",

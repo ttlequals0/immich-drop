@@ -11,6 +11,8 @@ from datetime import datetime
 import hashlib
 import httpx
 import os
+import base64
+import mimetypes
 
 from .url_downloader import (
     download_from_url,
@@ -20,6 +22,7 @@ from .url_downloader import (
     identify_platform,
     SUPPORTED_PATTERNS,
 )
+from .cookie_manager import get_cookie_file_for_platform
 
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -36,6 +39,13 @@ class UrlUploadRequest(BaseModel):
 
 class UrlBatchUploadRequest(BaseModel):
     urls: List[str]
+    album_name: Optional[str] = None
+
+
+class Base64UploadRequest(BaseModel):
+    """Request model for base64-encoded file upload (iOS Shortcuts compatible)"""
+    data: str  # base64-encoded file content
+    filename: Optional[str] = None
     album_name: Optional[str] = None
 
 
@@ -217,8 +227,11 @@ def create_api_routes(config):
                 detail=f"Unsupported URL. Supported platforms: {', '.join(SUPPORTED_PATTERNS.keys())}"
             )
 
+        # Look up cookies for this platform (if configured)
+        cookies_file = get_cookie_file_for_platform(platform, config.state_db)
+
         # Download the file
-        download_result = await download_from_url(url)
+        download_result = await download_from_url(url, cookies_file=cookies_file)
 
         if not download_result.success:
             return UrlUploadResponse(
@@ -285,16 +298,24 @@ def create_api_routes(config):
         if len(urls) > 10:
             raise HTTPException(status_code=400, detail="Maximum 10 URLs per request")
 
-        # Validate all URLs first
+        # Validate all URLs first and collect platforms
+        platforms = []
         for url in urls:
             if not is_supported_url(url):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Unsupported URL: {url}"
                 )
+            platforms.append(identify_platform(url))
+
+        # Look up cookies - if all URLs are from the same platform, use cookies
+        cookies_file = None
+        unique_platforms = set(platforms)
+        if len(unique_platforms) == 1:
+            cookies_file = get_cookie_file_for_platform(platforms[0], config.state_db)
 
         results = []
-        download_results = await download_multiple_urls(urls)
+        download_results = await download_multiple_urls(urls, cookies_file=cookies_file)
 
         for url, download_result in zip(urls, download_results):
             platform = identify_platform(url)
@@ -429,6 +450,55 @@ def create_api_routes(config):
         )
 
         target_album = album_name or getattr(config, 'album_name', None)
+        if target_album and upload_result.asset_id and upload_result.status == "success":
+            await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client)
+
+        return upload_result
+
+    @router.post("/upload/base64", response_model=UploadResult)
+    async def upload_base64_file(
+        request: Request,
+        upload_request: Base64UploadRequest,
+    ):
+        """
+        Upload a base64-encoded file - most reliable for iOS Shortcuts
+
+        JSON body:
+        {
+            "data": "base64-encoded-file-content",
+            "filename": "photo.jpg" (optional),
+            "album_name": "Album Name" (optional)
+        }
+        """
+        httpx_client = request.app.state.httpx_client
+
+        # Decode base64 data
+        try:
+            # Handle data URL format (e.g., "data:image/jpeg;base64,/9j/4AAQ...")
+            data_str = upload_request.data
+            if data_str.startswith("data:"):
+                # Extract the base64 part after the comma
+                header, data_str = data_str.split(",", 1)
+
+            file_content = base64.b64decode(data_str)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid base64 data: {str(e)}")
+
+        # Determine filename and content type
+        filename = upload_request.filename or f"upload_{datetime.utcnow().timestamp()}.jpg"
+        content_type, _ = mimetypes.guess_type(filename)
+        content_type = content_type or "application/octet-stream"
+
+        upload_result = await upload_to_immich(
+            file_content=file_content,
+            filename=filename,
+            content_type=content_type,
+            config=config,
+            httpx_client=httpx_client,
+            device_id="ios-shortcut-base64",
+        )
+
+        target_album = upload_request.album_name or getattr(config, 'album_name', None)
         if target_album and upload_result.asset_id and upload_result.status == "success":
             await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client)
 
