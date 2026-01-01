@@ -70,7 +70,8 @@
       </div>
       <p class="mt-3 font-medium hidden md:block">Drop images or videos here</p>
       <p class="text-sm text-gray-600 dark:text-gray-400 hidden md:block">...or</p>
-      <div class="mt-3 relative inline-block">
+      <!-- Desktop choose button (hidden on mobile, where sticky bar is used) -->
+      <div class="mt-3 relative hidden md:inline-block">
         <label class="rounded-2xl bg-black text-white dark:bg-white dark:text-black px-5 py-3 hover:opacity-90 cursor-pointer select-none" aria-label="Choose files">
           Choose files
           <input id="fileInput" type="file" multiple accept="image/*,video/*" class="absolute inset-0 opacity-0 cursor-pointer" />
@@ -100,8 +101,9 @@
     </section>
 
     <section id="items" class="space-y-3"></section>
-    <footer class="pt-4 pb-10 text-center text-xs text-gray-500 dark:text-gray-400">
-      Invite upload page
+    <footer class="pt-4 pb-10 text-center text-xs text-gray-500 dark:text-gray-400 space-y-1">
+      <div>Invite upload page</div>
+      <div><a href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener" class="underline hover:text-gray-700 dark:hover:text-gray-300">immich-drop v1.2.1</a></div>
     </footer>
   </div>
   <!-- Sticky mobile upload bar -->

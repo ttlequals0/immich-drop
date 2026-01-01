@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] - 2025-12-31
+
+### Added
+- Version footer with GitHub link on all pages
+
+### Fixed
+- Mobile UI: URL upload button now stacks vertically on small screens
+- Mobile UI: Removed duplicate "Choose files" button (sticky bar only on mobile)
+
 ## [1.2.0] - 2025-12-31
 
 ### Added
