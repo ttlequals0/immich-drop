@@ -42,8 +42,8 @@
       <p class="mt-3 font-medium hidden md:block">Drop images or videos here</p>
       <p class="text-sm text-gray-600 dark:text-gray-400 hidden md:block">...or</p>
 
-      <!-- Desktop choose button (hidden on mobile, where sticky bar is used) -->
-      <div class="mt-3 relative hidden md:inline-block">
+      <!-- Choose files button -->
+      <div class="mt-3 relative inline-block">
         <label class="rounded-2xl bg-black text-white dark:bg-white dark:text-black px-5 py-3 hover:opacity-90 cursor-pointer select-none transition-colors" aria-label="Choose files">
           Choose files
           <input id="fileInput"
@@ -87,15 +87,8 @@
 
     <footer class="pt-4 pb-10 text-center text-xs text-gray-500 dark:text-gray-400 space-y-1">
       <div>Built for simple, account-less uploads to Immich. This page never lists media from the server and only shows your current session's items.</div>
-      <div><a href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener" class="underline hover:text-gray-700 dark:hover:text-gray-300">immich-drop v1.2.1</a></div>
+      <div><a id="version-link" href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener" class="underline hover:text-gray-700 dark:hover:text-gray-300">immich-drop</a></div>
     </footer>
-  </div>
-
-  <!-- Sticky mobile upload bar -->
-  <div class="md:hidden fixed left-0 right-0 bottom-0 z-20 p-3 bg-white/90 dark:bg-gray-900/90 border-t border-gray-200 dark:border-gray-700 backdrop-blur" style="padding-bottom: calc(env(safe-area-inset-bottom) + 12px)">
-    <div class="mx-auto max-w-4xl">
-      <button id="btnMobilePick" class="w-full rounded-2xl bg-black text-white dark:bg-white dark:text-black px-5 py-3" aria-label="Choose files">Choose files</button>
-    </div>
   </div>
 
   <script src="/static/app.js"></script>
@@ -110,6 +103,16 @@
           console.error('URL upload error:', error);
         }
       });
+      // Fetch version dynamically
+      fetch('/api/config')
+        .then(r => r.json())
+        .then(data => {
+          const versionEl = document.getElementById('version-link');
+          if (versionEl && data.version) {
+            versionEl.textContent = 'immich-drop v' + data.version;
+          }
+        })
+        .catch(() => {});
     });
   </script>
 </body>

@@ -43,10 +43,13 @@
       </div>
       <div class="flex items-center justify-between">
         <button class="rounded-xl bg-black text-white px-4 py-2 dark:bg-white dark:text-black" type="submit">Login</button>
-        <a href="/" class="text-sm text-gray-500">Back to uploader</a>
+        <a href="/" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors">Back to uploader</a>
       </div>
     </form>
     </div>
+    <footer class="pt-8 pb-10 text-center text-xs text-gray-500 dark:text-gray-400 space-y-1">
+      <div><a id="version-link" href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener" class="underline hover:text-gray-700 dark:hover:text-gray-300">immich-drop</a></div>
+    </footer>
   </div>
   <script src="/static/header.js"></script>
   <script>
@@ -70,6 +73,16 @@
       }catch(err){ show('err', String(err)); }
     };
     // header.js wires theme + ping and provides consistent banner behavior
+    // Fetch version dynamically
+    fetch('/api/config')
+      .then(r => r.json())
+      .then(data => {
+        const versionEl = document.getElementById('version-link');
+        if (versionEl && data.version) {
+          versionEl.textContent = 'immich-drop v' + data.version;
+        }
+      })
+      .catch(() => {});
   </script>
 </body>
 </html>

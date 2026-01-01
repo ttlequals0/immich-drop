@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] - 2025-12-31
+
+### Changed
+- Version footer now dynamically fetches from `/api/config` instead of hardcoded value
+- Mobile UI: Restored "Choose files" button inside dropzone (removed sticky bottom bar)
+- URL upload input and button now always stack vertically for consistency
+- Login page: "Back to uploader" link styled as outlined button
+- Admin menu: "Create album" button styled as outlined (secondary action)
+
+### Fixed
+- Mobile UI: "Choose files" button visible on all screen sizes
+- All pages now show consistent version footer with dynamic version
+
 ## [1.2.1] - 2025-12-31
 
 ### Added

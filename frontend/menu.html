@@ -40,7 +40,7 @@
           </div>
           <div id="albumInputWrap" class="hidden">
             <input id="albumInput" placeholder="Album name (leave blank for none)" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" />
-            <button id="btnCreateAlbum" class="mt-2 w-full sm:w-auto rounded-xl bg-black text-white px-4 py-3 dark:bg-white dark:text-black">Create album</button>
+            <button id="btnCreateAlbum" class="mt-2 w-full sm:w-auto rounded-xl border px-4 py-3 dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors">Create album</button>
           </div>
           <div id="albumHint" class="text-sm text-gray-500"></div>
         </div>
@@ -164,7 +164,7 @@
     </section>
 
     <footer class="pt-4 pb-6 text-center text-xs text-gray-500 dark:text-gray-400">
-      <a href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener" class="underline hover:text-gray-700 dark:hover:text-gray-300">immich-drop v1.2.1</a>
+      <a id="version-link" href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener" class="underline hover:text-gray-700 dark:hover:text-gray-300">immich-drop</a>
     </footer>
   </div>
 
@@ -635,6 +635,17 @@
 
     // Load cookies on page load
     loadCookies();
+
+    // Fetch version dynamically
+    fetch('/api/config')
+      .then(r => r.json())
+      .then(data => {
+        const versionEl = document.getElementById('version-link');
+        if (versionEl && data.version) {
+          versionEl.textContent = 'immich-drop v' + data.version;
+        }
+      })
+      .catch(() => {});
   </script>
 </body>
 </html>

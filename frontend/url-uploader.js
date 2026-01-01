@@ -28,16 +28,16 @@ class UrlUploader {
                         Paste a link from TikTok, Instagram, Reddit, YouTube, or Twitter
                     </p>
 
-                    <div class="flex flex-col sm:flex-row gap-2">
+                    <div class="flex flex-col gap-2">
                         <input
                             type="text"
                             id="url-input"
                             placeholder="https://www.tiktok.com/@user/video/..."
-                            class="w-full sm:flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                         />
                         <button
                             id="url-upload-btn"
-                            class="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
                             <span id="url-btn-text">Upload</span>
                             <svg id="url-spinner" class="hidden animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

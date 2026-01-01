@@ -37,6 +37,7 @@ except Exception:
     qrcode = None
 
 from app.config import Settings, load_settings
+from version import VERSION
 
 
 # ---- Lifespan for shared resources ----
@@ -437,6 +438,7 @@ async def api_config() -> dict:
         "public_upload_page_enabled": SETTINGS.public_upload_page_enabled,
         "chunked_uploads_enabled": SETTINGS.chunked_uploads_enabled,
         "chunk_size_mb": SETTINGS.chunk_size_mb,
+        "version": VERSION,
     }
 
 @app.websocket("/ws")
