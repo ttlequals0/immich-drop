@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.3] - 2025-12-31
+
+### Fixed
+- URL upload: Use inline styles for vertical stacking (fixes Tailwind CDN dynamic content issue)
+
 ## [1.2.2] - 2025-12-31
 
 ### Changed
