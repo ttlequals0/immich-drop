@@ -37,12 +37,14 @@ except Exception:
     qrcode = None
 
 from app.config import Settings, load_settings
+from version import VERSION
 
 
 # ---- Lifespan for shared resources ----
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle - initialize and cleanup shared resources."""
+    logger.info(f"Starting immich-drop v{VERSION}")
     # Startup: create shared httpx client for connection pooling
     app.state.httpx_client = httpx.AsyncClient(timeout=30.0)
     yield
@@ -437,6 +439,7 @@ async def api_config() -> dict:
         "public_upload_page_enabled": SETTINGS.public_upload_page_enabled,
         "chunked_uploads_enabled": SETTINGS.chunked_uploads_enabled,
         "chunk_size_mb": SETTINGS.chunk_size_mb,
+        "version": VERSION,
     }
 
 @app.websocket("/ws")
@@ -1240,6 +1243,31 @@ def ensure_invites_table() -> None:
 
 ensure_invites_table()
 
+# ---------- Platform Cookies (for yt-dlp authenticated downloads) ----------
+
+def ensure_platform_cookies_table() -> None:
+    """Create the platform_cookies table for storing yt-dlp authentication cookies."""
+    try:
+        conn = sqlite3.connect(SETTINGS.state_db)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS platform_cookies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                platform TEXT NOT NULL UNIQUE,
+                cookie_string TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.exception("Failed to ensure platform_cookies table: %s", e)
+
+ensure_platform_cookies_table()
+
 @app.post("/api/invites")
 async def api_invites_create(request: Request) -> JSONResponse:
     """Create an invite link for uploads with optional expiry and max uses."""
@@ -1780,6 +1808,62 @@ async def api_qr(request: Request):
     img.save(buf, format="PNG")
     buf.seek(0)
     return Response(content=buf.read(), media_type="image/png")
+
+# ---------- Platform Cookies API ----------
+
+from .cookie_manager import (
+    db_list_cookies,
+    db_upsert_cookie,
+    db_delete_cookie,
+    PLATFORM_DOMAINS,
+)
+
+@app.get("/api/cookies")
+async def api_cookies_list(request: Request) -> JSONResponse:
+    """List all configured platform cookies. Requires admin login."""
+    if not request.session.get("accessToken"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    cookies = db_list_cookies(SETTINGS.state_db)
+    # Mask cookie values for security (show only first 40 chars)
+    for c in cookies:
+        if c.get("cookie_string") and len(c["cookie_string"]) > 40:
+            c["cookie_preview"] = c["cookie_string"][:40] + "..."
+        else:
+            c["cookie_preview"] = c.get("cookie_string", "")
+    return JSONResponse({"items": cookies, "platforms": list(PLATFORM_DOMAINS.keys())})
+
+@app.post("/api/cookies")
+async def api_cookies_upsert(request: Request) -> JSONResponse:
+    """Create or update a platform cookie. Requires admin login."""
+    if not request.session.get("accessToken"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid_json"}, status_code=400)
+    platform = (body or {}).get("platform", "").strip().lower()
+    cookie_string = (body or {}).get("cookie_string", "").strip()
+    if not platform:
+        return JSONResponse({"error": "missing_platform"}, status_code=400)
+    if not cookie_string:
+        return JSONResponse({"error": "missing_cookie_string"}, status_code=400)
+    if platform not in PLATFORM_DOMAINS:
+        return JSONResponse({"error": "unsupported_platform", "supported": list(PLATFORM_DOMAINS.keys())}, status_code=400)
+    success = db_upsert_cookie(SETTINGS.state_db, platform, cookie_string)
+    if success:
+        return JSONResponse({"ok": True, "platform": platform})
+    return JSONResponse({"error": "save_failed"}, status_code=500)
+
+@app.delete("/api/cookies/{platform}")
+async def api_cookies_delete(request: Request, platform: str) -> JSONResponse:
+    """Delete a platform cookie. Requires admin login."""
+    if not request.session.get("accessToken"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    platform = platform.strip().lower()
+    deleted = db_delete_cookie(SETTINGS.state_db, platform)
+    if deleted:
+        return JSONResponse({"ok": True, "deleted": platform})
+    return JSONResponse({"error": "not_found"}, status_code=404)
 
 """
 Note: Do not run this module directly. Use `python main.py` from

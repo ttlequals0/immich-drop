@@ -70,6 +70,7 @@
       </div>
       <p class="mt-3 font-medium hidden md:block">Drop images or videos here</p>
       <p class="text-sm text-gray-600 dark:text-gray-400 hidden md:block">...or</p>
+      <!-- Choose files button -->
       <div class="mt-3 relative inline-block">
         <label class="rounded-2xl bg-black text-white dark:bg-white dark:text-black px-5 py-3 hover:opacity-90 cursor-pointer select-none" aria-label="Choose files">
           Choose files
@@ -100,15 +101,10 @@
     </section>
 
     <section id="items" class="space-y-3"></section>
-    <footer class="pt-4 pb-10 text-center text-xs text-gray-500 dark:text-gray-400">
-      Invite upload page
+    <footer class="pt-4 pb-10 text-center text-xs text-gray-500 dark:text-gray-400 space-y-1">
+      <div>Invite upload page</div>
+      <div><a id="version-link" href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener" class="underline hover:text-gray-700 dark:hover:text-gray-300">immich-drop</a></div>
     </footer>
-  </div>
-  <!-- Sticky mobile upload bar -->
-  <div class="md:hidden fixed left-0 right-0 bottom-0 z-20 p-3 bg-white/90 dark:bg-gray-900/90 border-t border-gray-200 dark:border-gray-700 backdrop-blur" style="padding-bottom: calc(env(safe-area-inset-bottom) + 12px)">
-    <div class="mx-auto max-w-4xl">
-      <button id="btnMobilePick" class="w-full rounded-2xl bg-black text-white dark:bg-white dark:text-black px-5 py-3" aria-label="Choose files">Choose files</button>
-    </div>
   </div>
   <script src="/static/header.js"></script>
   <script src="/static/app.js"></script>
@@ -183,6 +179,16 @@
       pingStatus.textContent = 'checking…';
       try { const r = await fetch('/api/ping', { method:'POST' }); const j = await r.json(); pingStatus.textContent = j.ok ? 'Connected' : 'No connection'; pingStatus.className = 'ml-2 text-sm ' + (j.ok ? 'text-green-600' : 'text-red-600'); if(j.ok){ let text = `Connected to Immich at ${j.base_url}`; if(j.album_name) text += ` | Uploading to album: "${j.album_name}"`; showBanner(text, 'ok'); } } catch { pingStatus.textContent = 'No connection'; pingStatus.className='ml-2 text-sm text-red-600'; }
     };
+    // Fetch version dynamically
+    fetch('/api/config')
+      .then(r => r.json())
+      .then(data => {
+        const versionEl = document.getElementById('version-link');
+        if (versionEl && data.version) {
+          versionEl.textContent = 'immich-drop v' + data.version;
+        }
+      })
+      .catch(() => {});
   })();
 </script>
 </html>
