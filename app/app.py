@@ -44,6 +44,7 @@ from version import VERSION
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle - initialize and cleanup shared resources."""
+    logger.info(f"Starting immich-drop v{VERSION}")
     # Startup: create shared httpx client for connection pooling
     app.state.httpx_client = httpx.AsyncClient(timeout=30.0)
     yield
