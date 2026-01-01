@@ -18,6 +18,7 @@ Admin users log in to create public invite links; invite links are always public
 - **Privacy-first:** never lists server media; session-local uploads only
 - **Mobile + Dark Mode:** responsive UI, safe-area padding, persistent theme
 - **URL Downloads:** download from TikTok, Instagram, Reddit, YouTube, Twitter and upload to Immich
+- **Platform Cookies:** add authentication cookies for platforms requiring login (Instagram, TikTok, etc.)
 - **iOS Shortcuts:** share photos/videos or social media URLs directly from your iPhone ([setup guide](docs/ios-shortcuts.md))
 
 ---
@@ -26,6 +27,7 @@ Admin users log in to create public invite links; invite links are always public
 - [Quick start](#quick-start)
 - [iOS Shortcuts](#ios-shortcuts)
 - [URL Downloads](#url-downloads)
+- [Platform Cookies](#platform-cookies)
 - [New Features](#new-features)
 - [Chunked Uploads](#chunked-uploads)
 - [Architecture](#architecture)
@@ -136,6 +138,35 @@ Upload content from social media platforms directly via the web UI or API:
 
 ---
 
+## Platform Cookies
+
+Many social media platforms require authentication to access certain content (e.g., Instagram Reels, private TikTok videos). You can configure cookies in the admin panel to enable authenticated downloads.
+
+**Setup:**
+1. Log in to the admin menu (`/menu`)
+2. Scroll to "Platform Cookies" section
+3. Select platform (Instagram, TikTok, Twitter, Reddit, YouTube)
+4. Paste your cookie string from browser DevTools
+5. Click "Save Cookie"
+
+**Getting cookies from your browser:**
+1. Open the platform in your browser (logged in)
+2. Open DevTools (F12) > Network tab
+3. Refresh the page and click any request to the platform
+4. Find "Cookie:" in Request Headers
+5. Copy the entire value
+
+**Cookie API Endpoints:**
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/cookies` | GET | List configured platform cookies |
+| `/api/cookies` | POST | Create or update platform cookie |
+| `/api/cookies/{platform}` | DELETE | Delete platform cookie |
+
+Cookies are stored server-side in `/data/cookies/` and automatically used when downloading from the corresponding platform.
+
+---
+
 ## What's New
 
 ### v0.5.0 – Manage Links overhaul
@@ -203,6 +234,7 @@ immich_drop/
 │  ├─ app.py                # ASGI app (uvicorn entry: app.app:app)
 │  ├─ api_routes.py         # URL download and iOS Shortcut endpoints
 │  ├─ url_downloader.py     # yt-dlp wrapper for social media downloads
+│  ├─ cookie_manager.py     # Platform cookie storage and Netscape format conversion
 │  └─ config.py             # Settings loader (reads .env/env)
 ├─ frontend/                # Static UI (served at /static)
 │  ├─ index.html            # Public uploader (optional)
