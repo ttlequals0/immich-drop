@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.5] - 2026-01-01
+
+### Fixed
+- WebSocket disconnect error handling (RuntimeError when client disconnects)
+
 ## [1.2.4] - 2025-12-31
 
 ### Added

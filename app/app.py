@@ -465,12 +465,18 @@ async def ws_endpoint(ws: WebSocket) -> None:
             keep_task = asyncio.create_task(asyncio.sleep(30))
             done, pending = await asyncio.wait({msg_task, keep_task}, return_when=asyncio.FIRST_COMPLETED)
             if msg_task in done:
-                _ = msg_task.result()
+                try:
+                    _ = msg_task.result()
+                except RuntimeError:
+                    # Client disconnected during receive
+                    break
             else:
                 await ws.send_text('{"type":"ping"}')
             for t in pending:
                 t.cancel()
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
         await hub.disconnect(session_id, ws)
 
 @app.post("/api/upload")
