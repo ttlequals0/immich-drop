@@ -9,6 +9,10 @@ All notable changes to this project will be documented in this file.
   - Supports JPEG, PNG, GIF, WebP, HEIC, AVIF, MP4, MOV, BMP, TIFF
   - Filename extension no longer required for iOS Shortcuts uploads
   - Automatically appends correct extension if missing
+- Official iOS Shortcut for uploading photos, videos, and URLs
+  - Download link in docs/ios-shortcuts.md
+  - Handles photos, videos (MOV/MP4), and social media URLs
+  - Uses Encode Media passthrough for proper video handling
 
 ## [1.2.5] - 2026-01-01
 
