@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.6] - 2026-01-02
+
+### Added
+- Auto-detect file type from magic bytes in base64 upload endpoint
+  - Supports JPEG, PNG, GIF, WebP, HEIC, AVIF, MP4, MOV, BMP, TIFF
+  - Filename extension no longer required for iOS Shortcuts uploads
+  - Automatically appends correct extension if missing
+
 ## [1.2.5] - 2026-01-01
 
 ### Fixed
