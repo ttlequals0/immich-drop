@@ -38,6 +38,7 @@ SUPPORTED_PATTERNS = {
     ],
     'reddit': [
         r'(?:https?://)?(?:www\.|old\.)?reddit\.com/r/[\w]+/comments/[\w]+',
+        r'(?:https?://)?(?:www\.)?reddit\.com/r/[\w]+/s/[\w]+',  # Share links
         r'(?:https?://)?(?:www\.)?redd\.it/[\w]+',
         r'(?:https?://)?v\.redd\.it/[\w]+',
         r'(?:https?://)?(?:i\.)?reddit\.com/[\w/]+',

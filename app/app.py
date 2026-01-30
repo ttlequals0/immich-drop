@@ -89,6 +89,8 @@ except Exception:
 
 # Album cache
 ALBUM_ID: Optional[str] = None
+# Lock to prevent concurrent album creation race conditions
+_album_lock = asyncio.Lock()
 
 def reset_album_cache() -> None:
     """Invalidate the cached Immich album id so next use re-resolves it."""
@@ -269,7 +271,11 @@ def immich_headers(request: Optional[Request] = None) -> dict:
     return headers
 
 async def get_or_create_album(request: Optional[Request] = None, album_name_override: Optional[str] = None) -> Optional[str]:
-    """Get existing album by name or create a new one. Returns album ID or None."""
+    """Get existing album by name or create a new one. Returns album ID or None.
+
+    Uses a lock to prevent race conditions when multiple concurrent uploads
+    try to create the same album simultaneously.
+    """
     global ALBUM_ID
     album_name = album_name_override if album_name_override is not None else SETTINGS.album_name
     # Skip if no album name configured
@@ -278,50 +284,62 @@ async def get_or_create_album(request: Optional[Request] = None, album_name_over
     # Return cached album ID if already fetched and using default settings name
     if album_name_override is None and ALBUM_ID:
         return ALBUM_ID
-    try:
-        # Use shared httpx client from app state
-        client = app.state.httpx_client
-        # First, try to find existing album
-        url = f"{SETTINGS.normalized_base_url}/albums"
-        r = await client.get(url, headers=immich_headers(request), timeout=10.0)
 
-        if r.status_code == 200:
-            albums = r.json()
-            for album in albums:
-                if album.get("albumName") == album_name:
-                    found_id = album.get("id")
-                    if album_name_override is None:
-                        ALBUM_ID = found_id
-                        logger.info(f"Found existing album '%s' with ID: %s", album_name, ALBUM_ID)
-                        return ALBUM_ID
-                    else:
-                        return found_id
+    # Use lock to prevent concurrent album creation race conditions
+    async with _album_lock:
+        # Double-check cache after acquiring lock (another request may have set it)
+        if album_name_override is None and ALBUM_ID:
+            return ALBUM_ID
 
-        # Album doesn't exist, create it
-        create_url = f"{SETTINGS.normalized_base_url}/albums"
-        payload = {
-            "albumName": album_name,
-            "description": "Auto-created album for Immich Drop uploads"
-        }
-        r = await client.post(create_url, headers={**immich_headers(request), "Content-Type": "application/json"},
-                          json=payload, timeout=10.0)
+        try:
+            # Use shared httpx client from app state
+            client = app.state.httpx_client
+            # First, try to find existing album
+            url = f"{SETTINGS.normalized_base_url}/albums"
+            r = await client.get(url, headers=immich_headers(request), timeout=10.0)
 
-        if r.status_code in (200, 201):
-            data = r.json()
-            new_id = data.get("id")
-            if album_name_override is None:
-                ALBUM_ID = new_id
-                logger.info("Created new album '%s' with ID: %s", album_name, ALBUM_ID)
-                return ALBUM_ID
+            if r.status_code == 200:
+                albums = r.json()
+                for album in albums:
+                    if album.get("albumName") == album_name:
+                        found_id = album.get("id")
+                        if album_name_override is None:
+                            ALBUM_ID = found_id
+                            logger.info(f"Found existing album '%s' with ID: %s", album_name, ALBUM_ID)
+                            return ALBUM_ID
+                        else:
+                            return found_id
+            elif r.status_code >= 500:
+                # Server error from Immich - do not attempt to create album
+                # to avoid creating duplicates when server is having issues
+                logger.warning("Immich returned %s when listing albums, skipping album assignment", r.status_code)
+                return None
+
+            # Album doesn't exist, create it
+            create_url = f"{SETTINGS.normalized_base_url}/albums"
+            payload = {
+                "albumName": album_name,
+                "description": "Auto-created album for Immich Drop uploads"
+            }
+            r = await client.post(create_url, headers={**immich_headers(request), "Content-Type": "application/json"},
+                              json=payload, timeout=10.0)
+
+            if r.status_code in (200, 201):
+                data = r.json()
+                new_id = data.get("id")
+                if album_name_override is None:
+                    ALBUM_ID = new_id
+                    logger.info("Created new album '%s' with ID: %s", album_name, ALBUM_ID)
+                    return ALBUM_ID
+                else:
+                    logger.info("Created new album '%s' with ID: %s", album_name, new_id)
+                    return new_id
             else:
-                logger.info("Created new album '%s' with ID: %s", album_name, new_id)
-                return new_id
-        else:
-            logger.warning("Failed to create album: %s - %s", r.status_code, r.text)
-    except Exception as e:
-        logger.exception("Error managing album: %s", e)
+                logger.warning("Failed to create album: %s - %s", r.status_code, r.text)
+        except Exception as e:
+            logger.exception("Error managing album: %s", e)
 
-    return None
+        return None
 
 async def add_asset_to_album(asset_id: str, request: Optional[Request] = None, album_id_override: Optional[str] = None, album_name_override: Optional[str] = None) -> bool:
     """Add an asset to the configured album. Returns True on success."""

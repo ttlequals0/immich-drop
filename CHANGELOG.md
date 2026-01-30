@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.7] - 2026-01-30
+
+### Fixed
+- Album creation race condition: Multiple concurrent uploads no longer create duplicate albums
+  - Added async lock to prevent simultaneous album creation
+  - Added proper error handling when Immich returns 5xx errors (skips album assignment instead of creating duplicates)
+- Reddit share link URLs now supported (format: `reddit.com/r/<subreddit>/s/<id>`)
+
 ## [1.2.6] - 2026-01-02
 
 ### Added

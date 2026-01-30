@@ -1,2 +1,2 @@
 """Version information for immich-drop."""
-VERSION = "1.2.6"
+VERSION = "1.2.7"
