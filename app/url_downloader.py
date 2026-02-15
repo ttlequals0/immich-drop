@@ -144,6 +144,7 @@ async def download_from_url(
     elif platform == 'facebook':
         cmd.extend([
             "--format", "bestvideo+bestaudio/best",
+            "--impersonate", "chrome",
         ])
 
     cmd.append(url)

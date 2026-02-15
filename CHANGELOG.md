@@ -9,9 +9,11 @@ All notable changes to this project will be documented in this file.
   - Supported URL formats: /reel/, /videos/, /watch, /share/v/, /share/r/, fb.watch short links
   - Cookie support for authenticated Facebook downloads
   - Video-first format selection to prevent thumbnail-only downloads
+  - Browser impersonation for Facebook downloads (bypasses bot detection)
 
 ### Changed
 - Unpinned yt-dlp version (always pulls latest on build, was previously pinned to >=2024.1.0)
+- Added curl_cffi dependency for yt-dlp browser impersonation support
 
 ## [1.2.7] - 2026-01-30
 
