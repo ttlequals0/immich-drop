@@ -1,6 +1,6 @@
 """
 URL Downloader module for immich-drop
-Downloads videos/images from TikTok, Instagram, Reddit using yt-dlp
+Downloads videos/images from TikTok, Instagram, Facebook, Reddit using yt-dlp
 """
 import os
 import re
@@ -49,6 +49,14 @@ SUPPORTED_PATTERNS = {
     ],
     'twitter': [
         r'(?:https?://)?(?:www\.)?(?:twitter|x)\.com/[\w]+/status/\d+',
+    ],
+    'facebook': [
+        r'(?:https?://)?(?:www\.)?facebook\.com/reel/\d+',
+        r'(?:https?://)?(?:www\.)?facebook\.com/[\w.]+/videos/\d+',
+        r'(?:https?://)?(?:www\.)?facebook\.com/watch/?\?v=\d+',
+        r'(?:https?://)?(?:www\.)?facebook\.com/share/v/[\w]+',
+        r'(?:https?://)?(?:www\.)?facebook\.com/share/r/[\w]+',
+        r'(?:https?://)?fb\.watch/[\w]+',
     ],
 }
 
@@ -132,6 +140,10 @@ async def download_from_url(
     elif platform == 'twitter':
         cmd.extend([
             "--format", "best",
+        ])
+    elif platform == 'facebook':
+        cmd.extend([
+            "--format", "bestvideo+bestaudio/best",
         ])
 
     cmd.append(url)

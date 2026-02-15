@@ -254,6 +254,7 @@ def create_api_routes(config):
                 "reddit": "https://www.reddit.com/r/subreddit/comments/abc123/title",
                 "youtube": "https://www.youtube.com/shorts/ABC123",
                 "twitter": "https://twitter.com/user/status/123456789",
+                "facebook": "https://www.facebook.com/reel/123456789",
             }
         )
 

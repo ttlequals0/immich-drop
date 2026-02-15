@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.8] - 2026-02-15
+
+### Added
+- Facebook Reels and video support (URL downloads via yt-dlp)
+  - Supported URL formats: /reel/, /videos/, /watch, /share/v/, /share/r/, fb.watch short links
+  - Cookie support for authenticated Facebook downloads
+  - Video-first format selection to prevent thumbnail-only downloads
+
+### Changed
+- Unpinned yt-dlp version (always pulls latest on build, was previously pinned to >=2024.1.0)
+
 ## [1.2.7] - 2026-01-30
 
 ### Fixed
