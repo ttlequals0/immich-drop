@@ -9,7 +9,7 @@ Upload photos, videos, and social media links directly to your Immich server fro
 This shortcut handles:
 - Photos (JPEG, HEIC, PNG, etc.)
 - Videos (MOV, MP4)
-- Social media URLs (TikTok, Instagram, Reddit, YouTube, Twitter/X)
+- Social media URLs (TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X)
 
 ## Setup
 
@@ -30,21 +30,46 @@ This shortcut handles:
 
 ### For Social Media URLs
 
-1. Open TikTok, Instagram, Reddit, YouTube, or Twitter
+1. Open TikTok, Instagram, Facebook, Reddit, YouTube, or Twitter
 2. Find a video/post you want to save
 3. Tap Share -> "Save to Immich"
 4. The video downloads and uploads automatically
 
+**Note:** Facebook Reels require shortcut v1.2.9+ which uses "Get URLs from Input" for URL
+detection. The older "contains http" text check does not work with Facebook's share sheet
+format. See [Updating an Existing Shortcut](#updating-an-existing-shortcut) below.
+
 ## How It Works
 
 The shortcut:
-1. Detects if input is a URL or media file
+1. Uses "Get URLs from Input" to extract URLs from any share sheet input type
 2. For URLs: Sends to `/api/upload/url` endpoint for server-side download
 3. For videos: Uses "Encode Media" with Passthrough to preserve raw video data
 4. For images: Encodes directly to base64
 5. Uploads via `/api/upload/base64` endpoint with auto-detected file type
 
 The server automatically detects file types from magic bytes, so filename extensions are optional.
+
+---
+
+## Updating an Existing Shortcut
+
+If you have an older version of the shortcut that uses a "contains http" text check to
+detect URLs, you need to update it for Facebook support. The old text check does not work
+with Facebook's share sheet format -- the URL is present but not as plain text, so the
+check fails and the shortcut uploads a thumbnail image instead of the video.
+
+### Steps to update
+
+1. Open the Shortcuts app and edit your "Save to Immich" shortcut
+2. Find the **If** block that checks `if [Shortcut Input] contains "http"`
+3. Add a **Get URLs from Input** action before the If block, with input set to `Shortcut Input`
+4. Add a **Get Item from List** action: get `First Item` from `URLs`
+5. Change the **If** condition to: `if [URLs] has any value`
+6. In the URL upload POST body, change the `url` value from `Shortcut Input` to `Item from List`
+7. Keep the Otherwise branch (media/base64 path) unchanged
+
+This also improves reliability for any app that shares rich links instead of plain text URLs.
 
 ---
 
@@ -61,7 +86,7 @@ The server automatically detects file types from magic bytes, so filename extens
 
 ### "Unsupported URL" error
 - Make sure you're sharing the video/post URL, not just text
-- Supported platforms: TikTok, Instagram, Reddit, YouTube, Twitter/X
+- Supported platforms: TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X
 
 ### Videos not downloading from Instagram
 - Instagram stories/posts may require authentication
@@ -71,6 +96,16 @@ The server automatically detects file types from magic bytes, so filename extens
 ### "413 Request Entity Too Large"
 - If using a reverse proxy (nginx, Traefik), increase body size limit
 - For nginx: `client_max_body_size 500M;`
+
+### Facebook Reels upload a thumbnail instead of the video
+- Your shortcut is using the old "contains http" URL detection
+- Facebook's share sheet passes URLs in a format that the text check doesn't see
+- Update your shortcut to use "Get URLs from Input" instead -- see [Updating an Existing Shortcut](#updating-an-existing-shortcut) above
+
+### Facebook Reels show "Unsupported URL" error
+- Make sure your immich-drop server is v1.2.8 or later
+- Supported URL formats: /reel/, /videos/, /watch, /share/v/, /share/r/, fb.watch short links
+- If using a private video, configure Facebook cookies in the admin menu
 
 ### Images appear corrupted
 - Make sure you're using the latest shortcut version
@@ -108,9 +143,13 @@ The server auto-detects file type from magic bytes. Supported formats:
 
 If you prefer to create the shortcut manually or want to customize it, the key components are:
 
-1. **URL Detection**: Check if input contains "http" to route to URL upload
-2. **Video Detection**: Use "Get Details of Images" -> "File Extension" to detect .mov/.mp4
-3. **Video Processing**: Use "Encode Media" with Size: Passthrough before base64 encoding
-4. **Image Processing**: Base64 encode directly with Line Breaks: None
-5. **JSON Body**: Build manually with Text action, send as Request Body: File
-6. **Result Handling**: Store upload result in a variable before End If to handle both paths
+1. **URL Detection**: Use "Get URLs from Input" on Shortcut Input, then "Get First Item from List" to extract the URL. Use an If block to check if URLs has any value.
+2. **URL Upload**: POST the extracted URL to `ServerName/api/upload/url` as JSON with key `url`
+3. **Video Detection**: Use "Get Details of Images" -> "File Extension" to detect .mov/.mp4
+4. **Video Processing**: Use "Encode Media" with Size: Passthrough before base64 encoding
+5. **Image Processing**: Base64 encode directly with Line Breaks: None
+6. **JSON Body**: Build manually with Text action, send as Request Body: File
+7. **Result Handling**: Store upload result in a variable before End If to handle both paths
+
+**Important:** Do not use "contains http" for URL detection -- it does not work with apps
+(like Facebook) that share URLs as rich links instead of plain text.

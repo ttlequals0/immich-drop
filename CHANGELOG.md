@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.9] - 2026-02-15
+
+### Fixed
+- Facebook downloads: Force mp4 output format to prevent corrupt files in Immich
+  - Changed format selection to prefer mp4 containers with `--merge-output-format mp4`
+  - Previous `bestvideo+bestaudio/best` could produce .webm/.mkv that Immich cannot play
+- iOS Shortcut: Updated URL detection from "contains http" text check to "Get URLs from Input"
+  - Facebook's share sheet passes URLs in a format the old text check could not detect
+  - Shortcut was falling through to base64 path and uploading a thumbnail instead of the video
+  - New approach uses "Get URLs from Input" + "Get First Item from List" for reliable extraction
+
+### Added
+- Debug logging for yt-dlp downloads (command, stderr, metadata, file size, format)
+- Warning log when downloaded file is very small (likely a thumbnail instead of video)
+- Upload logging with filename, content type, and file size before sending to Immich
+- Facebook added to iOS Shortcuts and README supported platform lists
+
+## [1.2.8] - 2026-02-15
+
+### Added
+- Facebook Reels and video support (URL downloads via yt-dlp)
+  - Supported URL formats: /reel/, /videos/, /watch, /share/v/, /share/r/, fb.watch short links
+  - Cookie support for authenticated Facebook downloads
+  - Video-first format selection to prevent thumbnail-only downloads
+  - Browser impersonation for Facebook downloads (bypasses bot detection)
+
+### Changed
+- Unpinned yt-dlp version (always pulls latest on build, was previously pinned to >=2024.1.0)
+- Added curl_cffi dependency for yt-dlp browser impersonation support
+
 ## [1.2.7] - 2026-01-30
 
 ### Fixed

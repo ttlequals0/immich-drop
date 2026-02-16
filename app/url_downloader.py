@@ -1,18 +1,21 @@
 """
 URL Downloader module for immich-drop
-Downloads videos/images from TikTok, Instagram, Reddit using yt-dlp
+Downloads videos/images from TikTok, Instagram, Facebook, Reddit using yt-dlp
 """
 import os
 import re
 import tempfile
 import asyncio
 import hashlib
+import logging
 from pathlib import Path
 from typing import Optional, Tuple, List
 from dataclasses import dataclass
 from datetime import datetime
 import subprocess
 import json
+
+logger = logging.getLogger("immich_drop.url_downloader")
 
 
 @dataclass
@@ -49,6 +52,14 @@ SUPPORTED_PATTERNS = {
     ],
     'twitter': [
         r'(?:https?://)?(?:www\.)?(?:twitter|x)\.com/[\w]+/status/\d+',
+    ],
+    'facebook': [
+        r'(?:https?://)?(?:www\.)?facebook\.com/reel/\d+',
+        r'(?:https?://)?(?:www\.)?facebook\.com/[\w.]+/videos/\d+',
+        r'(?:https?://)?(?:www\.)?facebook\.com/watch/?\?v=\d+',
+        r'(?:https?://)?(?:www\.)?facebook\.com/share/v/[\w]+',
+        r'(?:https?://)?(?:www\.)?facebook\.com/share/r/[\w]+',
+        r'(?:https?://)?fb\.watch/[\w]+',
     ],
 }
 
@@ -133,8 +144,16 @@ async def download_from_url(
         cmd.extend([
             "--format", "best",
         ])
+    elif platform == 'facebook':
+        cmd.extend([
+            "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
+            "--merge-output-format", "mp4",
+            "--impersonate", "chrome",
+        ])
 
     cmd.append(url)
+
+    logger.info("yt-dlp command: %s", " ".join(cmd))
 
     try:
         # Run yt-dlp
@@ -146,8 +165,14 @@ async def download_from_url(
 
         stdout, stderr = await process.communicate()
 
+        if stderr:
+            stderr_text = stderr.decode().strip()
+            if stderr_text:
+                logger.warning("yt-dlp stderr: %s", stderr_text)
+
         if process.returncode != 0:
             error_msg = stderr.decode().strip() if stderr else "Unknown error"
+            logger.error("yt-dlp failed (exit %d): %s", process.returncode, error_msg)
             # Clean up temp dir if we created it
             if output_dir and output_dir.startswith(tempfile.gettempdir()):
                 import shutil
@@ -167,11 +192,21 @@ async def download_from_url(
                         metadata = json.loads(line)
                         break
             except json.JSONDecodeError:
-                pass
+                logger.warning("Failed to parse yt-dlp JSON output")
+
+        if metadata:
+            logger.info(
+                "yt-dlp metadata: format=%s ext=%s resolution=%s filesize=%s",
+                metadata.get("format"),
+                metadata.get("ext"),
+                metadata.get("resolution"),
+                metadata.get("filesize") or metadata.get("filesize_approx"),
+            )
 
         # Find the downloaded file
         downloaded_files = list(Path(output_dir).glob("*"))
         if not downloaded_files:
+            logger.error("yt-dlp returned 0 but no file found in %s", output_dir)
             return DownloadResult(
                 success=False,
                 error="No file was downloaded"
@@ -179,6 +214,16 @@ async def download_from_url(
 
         filepath = str(downloaded_files[0])
         filename = downloaded_files[0].name
+        file_size = downloaded_files[0].stat().st_size
+        logger.info(
+            "Downloaded file: %s (size=%d bytes, ext=%s)",
+            filename, file_size, downloaded_files[0].suffix,
+        )
+        if file_size < 10000:
+            logger.warning(
+                "Downloaded file is very small (%d bytes) -- likely a thumbnail or error page",
+                file_size,
+            )
 
         # Determine content type
         ext = downloaded_files[0].suffix.lower()

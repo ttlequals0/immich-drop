@@ -17,6 +17,7 @@ PLATFORM_DOMAINS = {
     "instagram": ".instagram.com",
     "tiktok": ".tiktok.com",
     "twitter": ".twitter.com",
+    "facebook": ".facebook.com",
     "reddit": ".reddit.com",
     "youtube": ".youtube.com",
 }

@@ -12,7 +12,10 @@ import hashlib
 import httpx
 import os
 import base64
+import logging
 import mimetypes
+
+logger = logging.getLogger("immich_drop.api_routes")
 
 from .url_downloader import (
     download_from_url,
@@ -254,6 +257,7 @@ def create_api_routes(config):
                 "reddit": "https://www.reddit.com/r/subreddit/comments/abc123/title",
                 "youtube": "https://www.youtube.com/shorts/ABC123",
                 "twitter": "https://twitter.com/user/status/123456789",
+                "facebook": "https://www.facebook.com/reel/123456789",
             }
         )
 
@@ -279,6 +283,8 @@ def create_api_routes(config):
                 detail=f"Unsupported URL. Supported platforms: {', '.join(SUPPORTED_PATTERNS.keys())}"
             )
 
+        logger.info("URL upload request: platform=%s url=%s", platform, url)
+
         # Look up cookies for this platform (if configured)
         cookies_file = get_cookie_file_for_platform(platform, config.state_db)
 
@@ -286,6 +292,7 @@ def create_api_routes(config):
         download_result = await download_from_url(url, cookies_file=cookies_file)
 
         if not download_result.success:
+            logger.error("Download failed for %s: %s", url, download_result.error)
             return UrlUploadResponse(
                 success=False,
                 error=download_result.error,
@@ -295,6 +302,13 @@ def create_api_routes(config):
             # Read file content
             with open(download_result.filepath, "rb") as f:
                 file_content = f.read()
+
+            logger.info(
+                "Uploading to Immich: filename=%s content_type=%s size=%d bytes",
+                download_result.filename,
+                download_result.content_type,
+                len(file_content),
+            )
 
             # Extract timestamp from metadata if available
             file_created_at = None
