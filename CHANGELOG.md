@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 - Facebook downloads: Force mp4 output format to prevent corrupt files in Immich
   - Changed format selection to prefer mp4 containers with `--merge-output-format mp4`
   - Previous `bestvideo+bestaudio/best` could produce .webm/.mkv that Immich cannot play
+- iOS Shortcut: Updated URL detection from "contains http" text check to "Get URLs from Input"
+  - Facebook's share sheet passes URLs in a format the old text check could not detect
+  - Shortcut was falling through to base64 path and uploading a thumbnail instead of the video
+  - New approach uses "Get URLs from Input" + "Get First Item from List" for reliable extraction
 
 ### Added
 - Debug logging for yt-dlp downloads (command, stderr, metadata, file size, format)
