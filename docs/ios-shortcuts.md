@@ -9,7 +9,7 @@ Upload photos, videos, and social media links directly to your Immich server fro
 This shortcut handles:
 - Photos (JPEG, HEIC, PNG, etc.)
 - Videos (MOV, MP4)
-- Social media URLs (TikTok, Instagram, Reddit, YouTube, Twitter/X)
+- Social media URLs (TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X)
 
 ## Setup
 
@@ -30,7 +30,7 @@ This shortcut handles:
 
 ### For Social Media URLs
 
-1. Open TikTok, Instagram, Reddit, YouTube, or Twitter
+1. Open TikTok, Instagram, Facebook, Reddit, YouTube, or Twitter
 2. Find a video/post you want to save
 3. Tap Share -> "Save to Immich"
 4. The video downloads and uploads automatically
@@ -61,7 +61,7 @@ The server automatically detects file types from magic bytes, so filename extens
 
 ### "Unsupported URL" error
 - Make sure you're sharing the video/post URL, not just text
-- Supported platforms: TikTok, Instagram, Reddit, YouTube, Twitter/X
+- Supported platforms: TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X
 
 ### Videos not downloading from Instagram
 - Instagram stories/posts may require authentication
@@ -71,6 +71,11 @@ The server automatically detects file types from magic bytes, so filename extens
 ### "413 Request Entity Too Large"
 - If using a reverse proxy (nginx, Traefik), increase body size limit
 - For nginx: `client_max_body_size 500M;`
+
+### Facebook Reels show "Unsupported URL" error
+- Make sure your immich-drop server is v1.2.8 or later
+- Supported URL formats: /reel/, /videos/, /watch, /share/v/, /share/r/, fb.watch short links
+- If using a private video, configure Facebook cookies in the admin menu
 
 ### Images appear corrupted
 - Make sure you're using the latest shortcut version

@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.9] - 2026-02-15
+
+### Fixed
+- Facebook downloads: Force mp4 output format to prevent corrupt files in Immich
+  - Changed format selection to prefer mp4 containers with `--merge-output-format mp4`
+  - Previous `bestvideo+bestaudio/best` could produce .webm/.mkv that Immich cannot play
+
+### Added
+- Debug logging for yt-dlp downloads (command, stderr, metadata, file size, format)
+- Warning log when downloaded file is very small (likely a thumbnail instead of video)
+- Upload logging with filename, content type, and file size before sending to Immich
+- Facebook added to iOS Shortcuts and README supported platform lists
+
 ## [1.2.8] - 2026-02-15
 
 ### Added

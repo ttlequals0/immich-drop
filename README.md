@@ -17,7 +17,7 @@ Admin users log in to create public invite links; invite links are always public
 - **Chunked Uploads (optional):** large-file support with configurable chunk size
 - **Privacy-first:** never lists server media; session-local uploads only
 - **Mobile + Dark Mode:** responsive UI, safe-area padding, persistent theme
-- **URL Downloads:** download from TikTok, Instagram, Reddit, YouTube, Twitter and upload to Immich
+- **URL Downloads:** download from TikTok, Instagram, Facebook, Reddit, YouTube, Twitter and upload to Immich
 - **Platform Cookies:** add authentication cookies for platforms requiring login (Instagram, TikTok, etc.)
 - **iOS Shortcuts:** share photos/videos or social media URLs directly from your iPhone ([setup guide](docs/ios-shortcuts.md))
 
@@ -109,7 +109,7 @@ docker compose up -d
 Share photos, videos, and social media links directly from your iPhone to Immich.
 
 **Features:**
-- Single shortcut handles both files AND URLs (TikTok, Instagram, Reddit, YouTube, Twitter)
+- Single shortcut handles both files AND URLs (TikTok, Instagram, Facebook, Reddit, YouTube, Twitter)
 - Upload multiple photos/videos at once
 - Shows upload progress notifications
 
@@ -124,6 +124,7 @@ Upload content from social media platforms directly via the web UI or API:
 **Supported Platforms:**
 - TikTok
 - Instagram (Reels, Posts)
+- Facebook (Reels, Videos)
 - Reddit (videos, images)
 - YouTube (Shorts, videos)
 - Twitter/X
