@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-02-25
+
+### Added
+- Direct image URL download support (bypasses yt-dlp for image files)
+  - Downloads images via httpx with browser User-Agent, redirect following, and 100MB size limit
+  - File type detection via magic bytes (reuses shared detect_file_type utility)
+  - Known image-hosting domains: i.redd.it, i.imgur.com, pbs.twimg.com, preview.redd.it
+  - Any URL ending in .jpg, .jpeg, .png, .gif, .webp, .avif, .heic, .bmp, .tiff
+  - Works in both single and batch upload endpoints
+- Reddit URL patterns for i.redd.it and preview.redd.it image domains
+
+### Fixed
+- Reddit downloads failing with HTTP 429 (Too Many Requests)
+  - Added browser impersonation (`--impersonate chrome`) for Reddit, matching existing Facebook fix
+
+### Changed
+- Extracted detect_file_type into shared app/utils.py module (used by both api_routes and url_downloader)
+- Updated frontend description text to mention direct image URL support
+- is_supported_url now returns True for direct image URLs (not just platform-matched URLs)
+
 ## [1.2.9] - 2026-02-15
 
 ### Fixed

@@ -1,6 +1,7 @@
 """
 URL Downloader module for immich-drop
 Downloads videos/images from TikTok, Instagram, Facebook, Reddit using yt-dlp
+Also supports direct image URL downloads via httpx
 """
 import os
 import re
@@ -10,10 +11,15 @@ import hashlib
 import logging
 from pathlib import Path
 from typing import Optional, Tuple, List
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from datetime import datetime
 import subprocess
 import json
+
+import httpx
+
+from .utils import detect_file_type
 
 logger = logging.getLogger("immich_drop.url_downloader")
 
@@ -44,6 +50,8 @@ SUPPORTED_PATTERNS = {
         r'(?:https?://)?(?:www\.)?reddit\.com/r/[\w]+/s/[\w]+',  # Share links
         r'(?:https?://)?(?:www\.)?redd\.it/[\w]+',
         r'(?:https?://)?v\.redd\.it/[\w]+',
+        r'(?:https?://)?i\.redd\.it/[\w.]+',
+        r'(?:https?://)?preview\.redd\.it/[\w.?&=%-]+',
         r'(?:https?://)?(?:i\.)?reddit\.com/[\w/]+',
     ],
     'youtube': [
@@ -64,6 +72,13 @@ SUPPORTED_PATTERNS = {
 }
 
 
+DIRECT_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.heic', '.bmp', '.tiff'}
+
+DIRECT_IMAGE_DOMAINS = {'i.redd.it', 'i.imgur.com', 'pbs.twimg.com', 'preview.redd.it'}
+
+MAX_DIRECT_IMAGE_SIZE = 100 * 1024 * 1024  # 100MB
+
+
 def identify_platform(url: str) -> Optional[str]:
     """Identify which platform a URL belongs to"""
     for platform, patterns in SUPPORTED_PATTERNS.items():
@@ -73,9 +88,154 @@ def identify_platform(url: str) -> Optional[str]:
     return None
 
 
+def is_direct_image_url(url: str) -> bool:
+    """
+    Check if a URL points directly to an image file.
+    Matches by file extension in the URL path or by known image-hosting domains.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+
+    # Check if domain is a known direct-image host
+    hostname = (parsed.hostname or "").lower()
+    if hostname in DIRECT_IMAGE_DOMAINS:
+        return True
+
+    # Check if URL path ends with an image extension
+    path = parsed.path.lower()
+    for ext in DIRECT_IMAGE_EXTENSIONS:
+        if path.endswith(ext):
+            return True
+
+    return False
+
+
 def is_supported_url(url: str) -> bool:
-    """Check if URL is from a supported platform"""
-    return identify_platform(url) is not None
+    """Check if URL is from a supported platform or a direct image URL"""
+    return identify_platform(url) is not None or is_direct_image_url(url)
+
+
+async def download_direct_image(
+    url: str,
+    output_dir: Optional[str] = None,
+) -> DownloadResult:
+    """
+    Download an image directly via httpx (no yt-dlp needed).
+
+    Args:
+        url: Direct URL to an image file
+        output_dir: Directory to save the file (uses temp dir if not specified)
+
+    Returns:
+        DownloadResult with file info or error
+    """
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp(prefix="immich_drop_")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    }
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+            # HEAD request to check content type and size
+            head_resp = await client.head(url, headers=headers)
+            if head_resp.status_code >= 400:
+                return DownloadResult(
+                    success=False,
+                    error=f"HEAD request failed with status {head_resp.status_code}",
+                )
+
+            content_length = head_resp.headers.get("content-length")
+            if content_length and int(content_length) > MAX_DIRECT_IMAGE_SIZE:
+                return DownloadResult(
+                    success=False,
+                    error=f"File too large ({int(content_length)} bytes, max {MAX_DIRECT_IMAGE_SIZE})",
+                )
+
+            # Download the image
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+
+            data = resp.content
+            if len(data) > MAX_DIRECT_IMAGE_SIZE:
+                return DownloadResult(
+                    success=False,
+                    error=f"Downloaded file too large ({len(data)} bytes)",
+                )
+
+            # Determine file type from magic bytes first, then fall back to URL/headers
+            detected_ext, detected_mime = detect_file_type(data)
+
+            if detected_ext and detected_mime:
+                ext = detected_ext
+                content_type = detected_mime
+            else:
+                # Fall back to URL path extension
+                parsed_path = urlparse(url).path
+                ext = os.path.splitext(parsed_path)[1].lower()
+                if not ext or ext not in DIRECT_IMAGE_EXTENSIONS:
+                    # Fall back to Content-Type header
+                    ct = resp.headers.get("content-type", "")
+                    mime_to_ext = {
+                        "image/jpeg": ".jpg",
+                        "image/png": ".png",
+                        "image/gif": ".gif",
+                        "image/webp": ".webp",
+                        "image/avif": ".avif",
+                        "image/heic": ".heic",
+                        "image/bmp": ".bmp",
+                        "image/tiff": ".tiff",
+                    }
+                    ext = mime_to_ext.get(ct.split(";")[0].strip(), ".jpg")
+
+                content_type_map = {
+                    '.jpg': 'image/jpeg',
+                    '.jpeg': 'image/jpeg',
+                    '.png': 'image/png',
+                    '.gif': 'image/gif',
+                    '.webp': 'image/webp',
+                    '.avif': 'image/avif',
+                    '.heic': 'image/heic',
+                    '.bmp': 'image/bmp',
+                    '.tiff': 'image/tiff',
+                }
+                content_type = content_type_map.get(ext, 'application/octet-stream')
+
+            # Generate filename from URL hash
+            url_hash = hashlib.sha1(url.encode()).hexdigest()[:12]
+            filename = f"direct_{url_hash}{ext}"
+            filepath = os.path.join(output_dir, filename)
+
+            with open(filepath, "wb") as f:
+                f.write(data)
+
+            logger.info(
+                "Direct image downloaded: %s (size=%d bytes, type=%s)",
+                filename, len(data), content_type,
+            )
+
+            return DownloadResult(
+                success=True,
+                filepath=filepath,
+                filename=filename,
+                content_type=content_type,
+                metadata={"source": "direct_image", "url": url},
+            )
+
+    except httpx.HTTPStatusError as e:
+        return DownloadResult(
+            success=False,
+            error=f"HTTP error {e.response.status_code}: {e.response.reason_phrase}",
+        )
+    except Exception as e:
+        logger.error("Direct image download failed for %s: %s", url, e)
+        return DownloadResult(
+            success=False,
+            error=f"Download error: {str(e)}",
+        )
 
 
 async def download_from_url(
@@ -94,6 +254,11 @@ async def download_from_url(
     Returns:
         DownloadResult with file info or error
     """
+    # Check for direct image URLs first (skip yt-dlp entirely)
+    if is_direct_image_url(url):
+        logger.info("Detected direct image URL: %s", url)
+        return await download_direct_image(url, output_dir)
+
     platform = identify_platform(url)
     if not platform:
         return DownloadResult(
@@ -135,6 +300,7 @@ async def download_from_url(
     elif platform == 'reddit':
         cmd.extend([
             "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "--impersonate", "chrome",
         ])
     elif platform == 'youtube':
         cmd.extend([

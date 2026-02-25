@@ -25,7 +25,7 @@ class UrlUploader {
                 <div class="url-input-section">
                     <h3 class="text-lg font-semibold mb-2 dark:text-white">Upload from URL</h3>
                     <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                        Paste a link from TikTok, Instagram, Facebook, Reddit, YouTube, or Twitter
+                        Paste a link from TikTok, Instagram, Facebook, Reddit, YouTube, Twitter, or any direct image URL
                     </p>
 
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
