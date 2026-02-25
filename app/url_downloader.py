@@ -142,20 +142,23 @@ async def download_direct_image(
 
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
-            # HEAD request to check content type and size
-            head_resp = await client.head(url, headers=headers)
-            if head_resp.status_code >= 400:
-                return DownloadResult(
-                    success=False,
-                    error=f"HEAD request failed with status {head_resp.status_code}",
-                )
-
-            content_length = head_resp.headers.get("content-length")
-            if content_length and int(content_length) > MAX_DIRECT_IMAGE_SIZE:
-                return DownloadResult(
-                    success=False,
-                    error=f"File too large ({int(content_length)} bytes, max {MAX_DIRECT_IMAGE_SIZE})",
-                )
+            # HEAD request to pre-check size (non-fatal: some CDNs reject HEAD)
+            try:
+                head_resp = await client.head(url, headers=headers)
+                if head_resp.status_code < 400:
+                    content_length = head_resp.headers.get("content-length")
+                    if content_length and int(content_length) > MAX_DIRECT_IMAGE_SIZE:
+                        return DownloadResult(
+                            success=False,
+                            error=f"File too large ({int(content_length)} bytes, max {MAX_DIRECT_IMAGE_SIZE})",
+                        )
+                else:
+                    logger.debug(
+                        "HEAD request returned %d for %s, proceeding with GET",
+                        head_resp.status_code, url,
+                    )
+            except httpx.HTTPError as e:
+                logger.debug("HEAD request failed for %s: %s, proceeding with GET", url, e)
 
             # Download the image
             resp = await client.get(url, headers=headers)
@@ -245,6 +248,42 @@ BROWSER_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/131.0.0.0 Safari/537.36"
 )
+
+
+def parse_netscape_cookies(cookies_file: str) -> Optional[str]:
+    """
+    Parse a Netscape-format cookie file and return a Cookie header string.
+
+    Reads the file, skips comment and blank lines, parses tab-separated fields
+    (domain, flag, path, secure, expiry, name, value) and returns a string
+    like "name1=value1; name2=value2" suitable for an HTTP Cookie header.
+
+    Returns None if the file doesn't exist, is empty, or contains no valid cookies.
+    """
+    if not cookies_file or not os.path.exists(cookies_file):
+        return None
+
+    pairs = []
+    try:
+        with open(cookies_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 7:
+                    name = parts[5]
+                    value = parts[6]
+                    if name:
+                        pairs.append(f"{name}={value}")
+    except Exception as e:
+        logger.warning("Failed to parse cookie file %s: %s", cookies_file, e)
+        return None
+
+    if not pairs:
+        return None
+
+    return "; ".join(pairs)
 
 
 async def extract_reddit_image_urls(url: str) -> List[str]:
@@ -366,13 +405,20 @@ async def extract_reddit_image_urls(url: str) -> List[str]:
         return []
 
 
-async def extract_instagram_media_urls(url: str) -> List[Tuple[str, str]]:
+async def extract_instagram_media_urls(
+    url: str,
+    cookies_file: Optional[str] = None,
+) -> List[Tuple[str, str]]:
     """
     Extract media URLs from an Instagram post using the REST API endpoint.
 
     Handles:
     - Carousel posts: extracts all images and videos
     - Single posts: extracts the image or video
+
+    Args:
+        url: Instagram post URL
+        cookies_file: Optional path to Netscape-format cookie file for authenticated requests
 
     Returns list of (url, media_type) tuples where media_type is "image" or "video".
     Returns empty list on failure (caller should fall through to yt-dlp).
@@ -393,6 +439,14 @@ async def extract_instagram_media_urls(url: str) -> List[Tuple[str, str]]:
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": "https://www.instagram.com/",
     }
+
+    # Add cookies from the Netscape cookie file if available
+    cookie_header = parse_netscape_cookies(cookies_file)
+    if cookie_header:
+        headers["Cookie"] = cookie_header
+        logger.debug("Instagram API request: using cookies from %s", cookies_file)
+    else:
+        logger.debug("Instagram API request: no cookies available (API may return 404)")
 
     def _best_image_url(candidates: list) -> Optional[str]:
         """Pick highest resolution image from candidates list."""
@@ -434,14 +488,14 @@ async def extract_instagram_media_urls(url: str) -> List[Tuple[str, str]]:
                     "Instagram API failed: status=%d, falling back to og:image scraping",
                     resp.status_code,
                 )
-                return await _instagram_og_image_fallback(url, client)
+                return await _instagram_og_image_fallback(url, client, cookies_file)
 
             data = resp.json()
 
         items = data.get("items", [])
         if not items:
             logger.warning("Instagram API returned no items for %s", url)
-            return await _instagram_og_image_fallback(url)
+            return await _instagram_og_image_fallback(url, cookies_file=cookies_file)
 
         post = items[0]
         media_urls = []
@@ -467,11 +521,11 @@ async def extract_instagram_media_urls(url: str) -> List[Tuple[str, str]]:
             return media_urls
 
         logger.warning("Instagram: no media found in API response for %s", url)
-        return await _instagram_og_image_fallback(url)
+        return await _instagram_og_image_fallback(url, cookies_file=cookies_file)
 
     except (json.JSONDecodeError, KeyError) as e:
         logger.warning("Instagram API parse error for %s: %s, trying og:image fallback", url, e)
-        return await _instagram_og_image_fallback(url)
+        return await _instagram_og_image_fallback(url, cookies_file=cookies_file)
     except Exception as e:
         logger.error("Instagram media extraction failed for %s: %s", url, e)
         return []
@@ -480,12 +534,18 @@ async def extract_instagram_media_urls(url: str) -> List[Tuple[str, str]]:
 async def _instagram_og_image_fallback(
     url: str,
     client: Optional[httpx.AsyncClient] = None,
+    cookies_file: Optional[str] = None,
 ) -> List[Tuple[str, str]]:
     """
     Fallback: scrape og:image meta tag from Instagram page HTML.
     Returns at most one image (the cover/preview image).
     """
     headers = {"User-Agent": BROWSER_USER_AGENT}
+
+    # Add cookies if available (may help with login-walled pages)
+    cookie_header = parse_netscape_cookies(cookies_file)
+    if cookie_header:
+        headers["Cookie"] = cookie_header
 
     try:
         if client is None:
@@ -496,11 +556,18 @@ async def _instagram_og_image_fallback(
             resp = await client.get(url, headers=headers)
             page_html = resp.text
 
-        # Extract og:image content
+        # Extract og:image content -- handle both attribute orderings:
+        #   <meta property="og:image" content="...">
+        #   <meta content="..." property="og:image">
         match = re.search(
             r'<meta\s+property=["\']og:image["\']\s+content=["\']([^"\']+)["\']',
             page_html,
         )
+        if not match:
+            match = re.search(
+                r'<meta\s+content=["\']([^"\']+)["\']\s+property=["\']og:image["\']',
+                page_html,
+            )
         if match:
             og_url = html.unescape(match.group(1))
             logger.info("Instagram og:image fallback: extracted URL from %s", url)
@@ -746,6 +813,7 @@ async def download_platform_media(
     url: str,
     platform: str,
     output_dir: str,
+    cookies_file: Optional[str] = None,
 ) -> Optional[List[DownloadResult]]:
     """
     Try platform-specific media extraction (bypasses yt-dlp).
@@ -772,7 +840,7 @@ async def download_platform_media(
         return results if results else None
 
     elif platform == "instagram":
-        media_items = await extract_instagram_media_urls(url)
+        media_items = await extract_instagram_media_urls(url, cookies_file)
         if not media_items:
             return None
 
@@ -814,7 +882,7 @@ async def download_from_url_multi(
     platform = identify_platform(url)
 
     if platform in ("reddit", "instagram"):
-        media_results = await download_platform_media(url, platform, output_dir)
+        media_results = await download_platform_media(url, platform, output_dir, cookies_file)
         if media_results:
             return media_results
         logger.info(

@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.2] - 2026-02-25
+
+### Fixed
+- Instagram image posts still failing with "No video formats found" despite v1.3.1 extraction
+  - Cookies were never threaded through to `extract_instagram_media_urls()` -- the `?__a=1&__d=dis` API endpoint returns 404 without auth
+  - Added `cookies_file` parameter to `download_platform_media()` and `extract_instagram_media_urls()`
+  - `download_from_url_multi()` now passes `cookies_file` to platform-specific extractors
+  - Cookies also passed to `_instagram_og_image_fallback()` for login-walled pages
+- Instagram CDN image downloads failing when CDN rejects HEAD requests
+  - HEAD pre-check is now non-fatal: logs a debug message and proceeds with GET
+- Hardened og:image fallback regex to handle both `property/content` and `content/property` attribute orderings
+
+### Added
+- `parse_netscape_cookies()` helper to read Netscape cookie files into HTTP Cookie header strings
+
 ## [1.3.1] - 2026-02-25
 
 ### Fixed
