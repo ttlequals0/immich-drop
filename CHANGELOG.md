@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.3] - 2026-02-25
+
+### Fixed
+- Instagram image posts still failing when og:image meta tags are absent (JS-rendered pages)
+  - Added oEmbed fallback (`/api/v1/oembed/`) that works without authentication
+  - Returns 640x800 CDN thumbnail URL -- sufficient for image post extraction
+  - New fallback chain: API -> oEmbed -> og:image scraping
+  - oEmbed is tried before og:image since it is more reliable for unauthenticated requests
+
+### Added
+- `_instagram_oembed_fallback()` -- Instagram oEmbed API client for thumbnail extraction
+- `_instagram_fallback_chain()` -- unified fallback wrapper (oEmbed then og:image)
+
 ## [1.3.2] - 2026-02-25
 
 ### Fixed

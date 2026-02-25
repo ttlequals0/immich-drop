@@ -485,17 +485,17 @@ async def extract_instagram_media_urls(
 
             if resp.status_code != 200:
                 logger.warning(
-                    "Instagram API failed: status=%d, falling back to og:image scraping",
+                    "Instagram API failed: status=%d, trying fallback chain",
                     resp.status_code,
                 )
-                return await _instagram_og_image_fallback(url, client, cookies_file)
+                return await _instagram_fallback_chain(url, client, cookies_file)
 
             data = resp.json()
 
         items = data.get("items", [])
         if not items:
             logger.warning("Instagram API returned no items for %s", url)
-            return await _instagram_og_image_fallback(url, cookies_file=cookies_file)
+            return await _instagram_fallback_chain(url, cookies_file=cookies_file)
 
         post = items[0]
         media_urls = []
@@ -521,14 +521,62 @@ async def extract_instagram_media_urls(
             return media_urls
 
         logger.warning("Instagram: no media found in API response for %s", url)
-        return await _instagram_og_image_fallback(url, cookies_file=cookies_file)
+        return await _instagram_fallback_chain(url, cookies_file=cookies_file)
 
     except (json.JSONDecodeError, KeyError) as e:
-        logger.warning("Instagram API parse error for %s: %s, trying og:image fallback", url, e)
-        return await _instagram_og_image_fallback(url, cookies_file=cookies_file)
+        logger.warning("Instagram API parse error for %s: %s, trying fallback chain", url, e)
+        return await _instagram_fallback_chain(url, cookies_file=cookies_file)
     except Exception as e:
         logger.error("Instagram media extraction failed for %s: %s", url, e)
         return []
+
+
+async def _instagram_oembed_fallback(url: str) -> List[Tuple[str, str]]:
+    """
+    Fallback: use Instagram's oEmbed endpoint to get a thumbnail URL.
+    Works without authentication. Returns a 640x800 CDN image link.
+    """
+    oembed_url = f"https://www.instagram.com/api/v1/oembed/?url={url}"
+    headers = {"User-Agent": BROWSER_USER_AGENT}
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            resp = await client.get(oembed_url, headers=headers)
+
+            if resp.status_code != 200:
+                logger.warning(
+                    "Instagram oEmbed failed: status=%d for %s", resp.status_code, url,
+                )
+                return []
+
+            data = resp.json()
+            thumbnail_url = data.get("thumbnail_url")
+            if thumbnail_url:
+                logger.info("Instagram oEmbed fallback: extracted thumbnail from %s", url)
+                return [(thumbnail_url, "image")]
+
+            logger.warning("Instagram oEmbed: no thumbnail_url in response for %s", url)
+            return []
+
+    except Exception as e:
+        logger.error("Instagram oEmbed fallback failed for %s: %s", url, e)
+        return []
+
+
+async def _instagram_fallback_chain(
+    url: str,
+    client: Optional[httpx.AsyncClient] = None,
+    cookies_file: Optional[str] = None,
+) -> List[Tuple[str, str]]:
+    """
+    Try Instagram fallback methods in order:
+    1. oEmbed endpoint (no auth needed, most reliable for images)
+    2. og:image HTML scraping (last resort)
+    """
+    result = await _instagram_oembed_fallback(url)
+    if result:
+        return result
+    return await _instagram_og_image_fallback(url, client, cookies_file)
 
 
 async def _instagram_og_image_fallback(
