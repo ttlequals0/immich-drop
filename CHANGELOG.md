@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-02-25
+
+### Fixed
+- Reddit image posts failing with HTTP 429 (Too Many Requests)
+  - Bypasses yt-dlp entirely for image posts: fetches Reddit JSON directly via httpx
+  - Extracts image URLs from gallery posts (multi-image) and single image posts
+  - Constructs direct `i.redd.it` URLs from media_metadata for original quality
+  - Removed `--impersonate chrome` from Reddit yt-dlp args (did not fix 429)
+  - Video posts still fall through to yt-dlp as before
+- Instagram image posts failing with "No video formats found"
+  - Uses Instagram REST API (`?__a=1&__d=dis`) to extract media URLs directly
+  - Handles carousel posts (mixed images + videos), single images, and single videos
+  - Selects highest resolution from available candidates
+  - Falls back to og:image meta tag scraping if API endpoint fails
+  - Reels and video-only posts still fall through to yt-dlp
+
+### Added
+- Gallery/carousel support: single URL uploads now handle multi-image posts
+  - Reddit galleries download all images from the post
+  - Instagram carousels download all images and videos from the post
+  - All items uploaded to Immich; primary response returns first item
+- `extract_reddit_image_urls()` -- Reddit post JSON parser for image extraction
+- `extract_instagram_media_urls()` -- Instagram API client for media extraction
+- `download_platform_media()` -- unified platform-specific media downloader
+- `download_from_url_multi()` -- multi-result wrapper for gallery support
+
 ## [1.3.0] - 2026-02-25
 
 ### Added

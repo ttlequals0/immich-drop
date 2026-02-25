@@ -17,6 +17,8 @@ from datetime import datetime
 import subprocess
 import json
 
+import html
+
 import httpx
 
 from .utils import detect_file_type
@@ -238,6 +240,280 @@ async def download_direct_image(
         )
 
 
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
+
+async def extract_reddit_image_urls(url: str) -> List[str]:
+    """
+    Extract image URLs from a Reddit post by fetching its JSON data.
+
+    Handles:
+    - Gallery posts (is_gallery=True): extracts all images from gallery_data/media_metadata
+    - Single image posts (post_hint="image"): extracts the main image URL
+
+    Returns list of image URLs, or empty list if the post is a video or extraction fails.
+    """
+    # Normalize URL: strip trailing slash, append .json
+    clean_url = url.rstrip("/")
+    # Remove query params for the JSON fetch
+    json_url = clean_url.split("?")[0] + ".json"
+
+    headers = {"User-Agent": BROWSER_USER_AGENT}
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            resp = await client.get(json_url, headers=headers)
+            if resp.status_code != 200:
+                logger.warning(
+                    "Reddit JSON fetch failed: status=%d url=%s", resp.status_code, json_url
+                )
+                return []
+
+            data = resp.json()
+
+        # Reddit .json returns a list of listing objects
+        if not isinstance(data, list) or len(data) < 1:
+            logger.warning("Reddit JSON unexpected structure for %s", url)
+            return []
+
+        post_data = data[0].get("data", {}).get("children", [{}])[0].get("data", {})
+
+        if not post_data:
+            logger.warning("Reddit JSON: no post data found for %s", url)
+            return []
+
+        # Skip video posts -- let yt-dlp handle those
+        if post_data.get("is_video"):
+            logger.info("Reddit post is a video, deferring to yt-dlp: %s", url)
+            return []
+
+        image_urls = []
+
+        # Gallery posts
+        if post_data.get("is_gallery"):
+            gallery_items = post_data.get("gallery_data", {}).get("items", [])
+            media_metadata = post_data.get("media_metadata", {})
+
+            for item in gallery_items:
+                media_id = item.get("media_id")
+                if not media_id or media_id not in media_metadata:
+                    continue
+
+                meta = media_metadata[media_id]
+                # Skip non-image media (e.g., gif -> mp4)
+                mime_type = meta.get("m", "")
+                if not mime_type.startswith("image/"):
+                    continue
+
+                # Prefer constructing direct i.redd.it URL (original, uncompressed)
+                ext = mime_type.split("/")[-1]
+                if ext == "jpeg":
+                    ext = "jpg"
+                direct_url = f"https://i.redd.it/{media_id}.{ext}"
+                image_urls.append(direct_url)
+
+            if image_urls:
+                logger.info(
+                    "Reddit gallery: extracted %d image URLs from %s",
+                    len(image_urls), url,
+                )
+                return image_urls
+
+            # Fallback: try preview URLs from media_metadata .s.u
+            for item in gallery_items:
+                media_id = item.get("media_id")
+                if media_id and media_id in media_metadata:
+                    meta = media_metadata[media_id]
+                    preview_url = meta.get("s", {}).get("u")
+                    if preview_url:
+                        image_urls.append(html.unescape(preview_url))
+
+            if image_urls:
+                logger.info(
+                    "Reddit gallery (preview fallback): extracted %d URLs from %s",
+                    len(image_urls), url,
+                )
+            return image_urls
+
+        # Single image posts
+        post_hint = post_data.get("post_hint", "")
+        if post_hint == "image" or post_data.get("domain", "") in ("i.redd.it", "i.imgur.com"):
+            # Primary: url_overridden_by_dest (usually i.redd.it direct link)
+            override_url = post_data.get("url_overridden_by_dest")
+            if override_url:
+                image_urls.append(html.unescape(override_url))
+            else:
+                # Fallback: preview images
+                previews = post_data.get("preview", {}).get("images", [])
+                if previews:
+                    source_url = previews[0].get("source", {}).get("url")
+                    if source_url:
+                        image_urls.append(html.unescape(source_url))
+
+            if image_urls:
+                logger.info("Reddit single image: extracted URL from %s", url)
+            return image_urls
+
+        logger.info("Reddit post has no extractable images (hint=%s), deferring to yt-dlp", post_hint)
+        return []
+
+    except Exception as e:
+        logger.error("Reddit image extraction failed for %s: %s", url, e)
+        return []
+
+
+async def extract_instagram_media_urls(url: str) -> List[Tuple[str, str]]:
+    """
+    Extract media URLs from an Instagram post using the REST API endpoint.
+
+    Handles:
+    - Carousel posts: extracts all images and videos
+    - Single posts: extracts the image or video
+
+    Returns list of (url, media_type) tuples where media_type is "image" or "video".
+    Returns empty list on failure (caller should fall through to yt-dlp).
+    """
+    # Extract shortcode from URL
+    match = re.search(r'/(?:p|reel|reels)/([A-Za-z0-9_-]+)', url)
+    if not match:
+        logger.warning("Instagram: could not extract shortcode from %s", url)
+        return []
+
+    shortcode = match.group(1)
+    api_url = f"https://www.instagram.com/p/{shortcode}/?__a=1&__d=dis"
+
+    headers = {
+        "User-Agent": BROWSER_USER_AGENT,
+        "X-IG-App-ID": "936619743392459",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.instagram.com/",
+    }
+
+    def _best_image_url(candidates: list) -> Optional[str]:
+        """Pick highest resolution image from candidates list."""
+        if not candidates:
+            return None
+        best = max(candidates, key=lambda c: c.get("width", 0) * c.get("height", 0))
+        return best.get("url")
+
+    def _best_video_url(versions: list) -> Optional[str]:
+        """Pick highest resolution video from versions list."""
+        if not versions:
+            return None
+        best = max(versions, key=lambda v: v.get("width", 0) * v.get("height", 0))
+        return best.get("url")
+
+    def _extract_media_from_item(item: dict) -> Optional[Tuple[str, str]]:
+        """Extract best media URL from a single Instagram media item."""
+        # Check for video first
+        video_versions = item.get("video_versions")
+        if video_versions:
+            video_url = _best_video_url(video_versions)
+            if video_url:
+                return (video_url, "video")
+
+        # Fall back to image
+        candidates = item.get("image_versions2", {}).get("candidates", [])
+        image_url = _best_image_url(candidates)
+        if image_url:
+            return (image_url, "image")
+
+        return None
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            resp = await client.get(api_url, headers=headers)
+
+            if resp.status_code != 200:
+                logger.warning(
+                    "Instagram API failed: status=%d, falling back to og:image scraping",
+                    resp.status_code,
+                )
+                return await _instagram_og_image_fallback(url, client)
+
+            data = resp.json()
+
+        items = data.get("items", [])
+        if not items:
+            logger.warning("Instagram API returned no items for %s", url)
+            return await _instagram_og_image_fallback(url)
+
+        post = items[0]
+        media_urls = []
+
+        # Carousel posts
+        carousel_media = post.get("carousel_media")
+        if carousel_media:
+            for media_item in carousel_media:
+                result = _extract_media_from_item(media_item)
+                if result:
+                    media_urls.append(result)
+            logger.info(
+                "Instagram carousel: extracted %d media items from %s",
+                len(media_urls), url,
+            )
+            return media_urls
+
+        # Single post
+        result = _extract_media_from_item(post)
+        if result:
+            media_urls.append(result)
+            logger.info("Instagram single post: extracted %s from %s", result[1], url)
+            return media_urls
+
+        logger.warning("Instagram: no media found in API response for %s", url)
+        return await _instagram_og_image_fallback(url)
+
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.warning("Instagram API parse error for %s: %s, trying og:image fallback", url, e)
+        return await _instagram_og_image_fallback(url)
+    except Exception as e:
+        logger.error("Instagram media extraction failed for %s: %s", url, e)
+        return []
+
+
+async def _instagram_og_image_fallback(
+    url: str,
+    client: Optional[httpx.AsyncClient] = None,
+) -> List[Tuple[str, str]]:
+    """
+    Fallback: scrape og:image meta tag from Instagram page HTML.
+    Returns at most one image (the cover/preview image).
+    """
+    headers = {"User-Agent": BROWSER_USER_AGENT}
+
+    try:
+        if client is None:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as new_client:
+                resp = await new_client.get(url, headers=headers)
+                page_html = resp.text
+        else:
+            resp = await client.get(url, headers=headers)
+            page_html = resp.text
+
+        # Extract og:image content
+        match = re.search(
+            r'<meta\s+property=["\']og:image["\']\s+content=["\']([^"\']+)["\']',
+            page_html,
+        )
+        if match:
+            og_url = html.unescape(match.group(1))
+            logger.info("Instagram og:image fallback: extracted URL from %s", url)
+            return [(og_url, "image")]
+
+        logger.warning("Instagram og:image fallback: no og:image found for %s", url)
+        return []
+
+    except Exception as e:
+        logger.error("Instagram og:image fallback failed for %s: %s", url, e)
+        return []
+
+
 async def download_from_url(
     url: str,
     output_dir: Optional[str] = None,
@@ -300,7 +576,6 @@ async def download_from_url(
     elif platform == 'reddit':
         cmd.extend([
             "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "--impersonate", "chrome",
         ])
     elif platform == 'youtube':
         cmd.extend([
@@ -465,6 +740,91 @@ async def download_multiple_urls(
         tasks.append(download_from_url(url, sub_dir, cookies_file))
 
     return await asyncio.gather(*tasks)
+
+
+async def download_platform_media(
+    url: str,
+    platform: str,
+    output_dir: str,
+) -> Optional[List[DownloadResult]]:
+    """
+    Try platform-specific media extraction (bypasses yt-dlp).
+
+    Returns list of DownloadResult on success, or None if extraction fails
+    (signaling the caller to fall through to yt-dlp).
+    """
+    if platform == "reddit":
+        image_urls = await extract_reddit_image_urls(url)
+        if not image_urls:
+            return None
+
+        results = []
+        for img_url in image_urls:
+            result = await download_direct_image(img_url, output_dir)
+            if result.success:
+                result.metadata = result.metadata or {}
+                result.metadata["source"] = "reddit_extract"
+                result.metadata["post_url"] = url
+                results.append(result)
+            else:
+                logger.warning("Reddit image download failed for %s: %s", img_url, result.error)
+
+        return results if results else None
+
+    elif platform == "instagram":
+        media_items = await extract_instagram_media_urls(url)
+        if not media_items:
+            return None
+
+        results = []
+        for media_url, media_type in media_items:
+            result = await download_direct_image(media_url, output_dir)
+            if result.success:
+                result.metadata = result.metadata or {}
+                result.metadata["source"] = "instagram_extract"
+                result.metadata["post_url"] = url
+                result.metadata["media_type"] = media_type
+                results.append(result)
+            else:
+                logger.warning(
+                    "Instagram %s download failed for %s: %s",
+                    media_type, media_url, result.error,
+                )
+
+        return results if results else None
+
+    return None
+
+
+async def download_from_url_multi(
+    url: str,
+    output_dir: Optional[str] = None,
+    cookies_file: Optional[str] = None,
+) -> List[DownloadResult]:
+    """
+    Download media from a URL, returning multiple results for galleries/carousels.
+
+    For Reddit/Instagram: tries platform-specific extraction first (supports
+    multiple images), falls back to yt-dlp.
+    For all other platforms: delegates to download_from_url().
+    """
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp(prefix="immich_drop_")
+
+    platform = identify_platform(url)
+
+    if platform in ("reddit", "instagram"):
+        media_results = await download_platform_media(url, platform, output_dir)
+        if media_results:
+            return media_results
+        logger.info(
+            "Platform extraction returned no results for %s, falling back to yt-dlp",
+            url,
+        )
+
+    # Fall through to yt-dlp (or direct image handler)
+    result = await download_from_url(url, output_dir, cookies_file)
+    return [result]
 
 
 def cleanup_download(result: DownloadResult):

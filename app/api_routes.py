@@ -19,6 +19,7 @@ logger = logging.getLogger("immich_drop.api_routes")
 
 from .url_downloader import (
     download_from_url,
+    download_from_url_multi,
     download_multiple_urls,
     cleanup_download,
     is_supported_url,
@@ -239,62 +240,80 @@ def create_api_routes(config):
         # Look up cookies for this platform (if configured)
         cookies_file = get_cookie_file_for_platform(platform, config.state_db) if platform else None
 
-        # Download the file
-        download_result = await download_from_url(url, cookies_file=cookies_file)
+        # Download the file(s) -- may return multiple results for galleries
+        download_results = await download_from_url_multi(url, cookies_file=cookies_file)
 
-        if not download_result.success:
-            logger.error("Download failed for %s: %s", url, download_result.error)
+        # Filter to successful downloads
+        successful_downloads = [r for r in download_results if r.success]
+        if not successful_downloads:
+            first_error = download_results[0].error if download_results else "No media found"
+            logger.error("Download failed for %s: %s", url, first_error)
             return UrlUploadResponse(
                 success=False,
-                error=download_result.error,
+                error=first_error,
             )
+
+        source_label = platform or "direct_image"
+        primary_upload_result = None
+        total_uploaded = 0
 
         try:
-            # Read file content
-            with open(download_result.filepath, "rb") as f:
-                file_content = f.read()
+            for download_result in successful_downloads:
+                with open(download_result.filepath, "rb") as f:
+                    file_content = f.read()
 
-            logger.info(
-                "Uploading to Immich: filename=%s content_type=%s size=%d bytes",
-                download_result.filename,
-                download_result.content_type,
-                len(file_content),
-            )
+                logger.info(
+                    "Uploading to Immich: filename=%s content_type=%s size=%d bytes",
+                    download_result.filename,
+                    download_result.content_type,
+                    len(file_content),
+                )
 
-            # Extract timestamp from metadata if available
-            file_created_at = None
-            if download_result.metadata:
-                timestamp = download_result.metadata.get("timestamp")
-                if timestamp:
-                    file_created_at = datetime.fromtimestamp(timestamp).isoformat() + "Z"
+                # Extract timestamp from metadata if available
+                file_created_at = None
+                if download_result.metadata:
+                    timestamp = download_result.metadata.get("timestamp")
+                    if timestamp:
+                        file_created_at = datetime.fromtimestamp(timestamp).isoformat() + "Z"
 
-            # Upload to Immich
-            source_label = platform or "direct_image"
-            upload_result = await upload_to_immich(
-                file_content=file_content,
-                filename=download_result.filename,
-                content_type=download_result.content_type,
-                config=config,
-                httpx_client=httpx_client,
-                device_id=f"immich-drop-{source_label}",
-                file_created_at=file_created_at,
-            )
-            upload_result.platform = source_label
+                upload_result = await upload_to_immich(
+                    file_content=file_content,
+                    filename=download_result.filename,
+                    content_type=download_result.content_type,
+                    config=config,
+                    httpx_client=httpx_client,
+                    device_id=f"immich-drop-{source_label}",
+                    file_created_at=file_created_at,
+                )
+                upload_result.platform = source_label
 
-            # Add to album if specified or configured
-            album_name = url_request.album_name or getattr(config, 'album_name', None)
-            if album_name and upload_result.asset_id and upload_result.status == "success":
-                await add_asset_to_album(upload_result.asset_id, album_name, config, httpx_client)
+                # Add to album if specified or configured
+                album_name = url_request.album_name or getattr(config, 'album_name', None)
+                if album_name and upload_result.asset_id and upload_result.status == "success":
+                    await add_asset_to_album(upload_result.asset_id, album_name, config, httpx_client)
+
+                if upload_result.status == "success":
+                    total_uploaded += 1
+
+                # Keep first result as the primary response
+                if primary_upload_result is None:
+                    primary_upload_result = upload_result
+
+            if total_uploaded > 1:
+                logger.info(
+                    "Gallery upload complete: %d/%d items uploaded for %s",
+                    total_uploaded, len(successful_downloads), url,
+                )
 
             return UrlUploadResponse(
-                success=upload_result.status == "success",
-                result=upload_result,
-                error=upload_result.error,
+                success=primary_upload_result.status == "success",
+                result=primary_upload_result,
+                error=primary_upload_result.error,
             )
 
         finally:
-            # Clean up downloaded file
-            background_tasks.add_task(cleanup_download, download_result)
+            for download_result in download_results:
+                background_tasks.add_task(cleanup_download, download_result)
 
     @router.post("/upload/urls", response_model=BatchUploadResponse)
     async def upload_from_urls(
