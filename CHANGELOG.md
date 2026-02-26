@@ -2,6 +2,134 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.5] - 2026-02-25
+
+### Fixed
+- Critical: Direct image downloads (i.redd.it, imgur, etc.) crashing with TypeError
+  - The `_validate_redirect` SSRF event hook was a sync function but httpx AsyncClient requires async hooks
+  - Changed to `async def` -- function body needs no await calls, which is valid for async functions
+- Instagram story URLs matching the platform pattern but failing extraction
+  - Story URLs (`/stories/username/media_id/`) were routed to `extract_instagram_media_urls()` which expects a shortcode
+  - Added `_is_instagram_story_url()` helper to detect story URLs before routing
+  - Added `extract_instagram_story_urls()` using Instagram private API (web_profile_info + reels_media)
+  - Resolves username to user_id, fetches active stories, matches specific story by pk/id
+  - Requires cookies (stories are only visible to authenticated users)
+
+### Added
+- Multi-item response visibility for single URL endpoint (`POST /api/upload/url`)
+  - `UrlUploadResponse` now includes `total_uploaded` count and `additional_results` list
+  - Frontend shows count when multiple items uploaded (e.g., "Successfully uploaded 5 items!")
+  - All carousel/gallery items rendered individually in the results list
+  - Backward compatible: new fields have defaults (`total_uploaded=0`, `additional_results=[]`)
+
+### Changed
+- Adopted Immich brand colors throughout the UI
+  - Primary accent: `#4250af` (light mode) / `#accbfa` (dark mode) matching Immich's own `--immich-primary`
+  - Applied to buttons, input focus rings, dropzone drag state, platform tags, and footer links
+  - Added `--accent-hover`, `--accent-subtle`, and `--shadow-focus` design tokens
+- Fixed platform tags ("Supported:" line) displaying as unstyled run-together text
+  - CSS selector `.url-section .platform-tags` never matched (parent class is `url-uploader`)
+  - Changed to `.platform-tags` -- flex layout with gap now applies, tags display as spaced badges
+- Platform tags now use accent-subtle background with accent-colored text instead of plain gray
+
+## [1.3.4] - 2026-02-25
+
+### Fixed
+- SSRF vulnerability in direct image URL downloads
+  - `download_direct_image()` accepted URLs targeting private/internal networks (169.254.x.x, 10.x.x.x, 127.0.0.1, etc.)
+  - Added `_validate_url_target()` that resolves hostnames and blocks private, loopback, link-local, and reserved IP ranges
+  - Blocks non-HTTP(S) schemes (file://, ftp://, etc.)
+  - Redirect targets are validated via httpx event hook to prevent redirect-based SSRF bypasses
+
+### Changed
+- Complete frontend UI redesign -- consistent styling across all pages, mobile-friendly
+  - Replaced Tailwind CDN with custom `styles.css` using CSS custom properties for theming
+  - DM Sans font for body text, JetBrains Mono for code/monospace
+  - Unified component library: `.btn`, `.card`, `.input`, `.badge`, `.banner`, `.data-table`
+  - Dark mode via CSS variables (no Tailwind dark: prefix classes)
+  - Responsive tables: 7-column manage links table converts to stacked card layout on mobile
+  - Admin menu page header no longer overflows on small screens
+  - Login page centered with proper form card
+  - Upload progress items use DOM construction (no innerHTML with filenames)
+  - Extracted menu.js from inline script in menu.html
+- Merged duplicate `_best_image_url()` and `_best_video_url()` into single `_best_media_url()` helper
+- Removed unused `client` parameter from `_instagram_fallback_chain()` and `_instagram_og_image_fallback()`
+  - Each fallback function now creates its own `httpx.AsyncClient` (self-contained for failure paths)
+
+## [1.3.3] - 2026-02-25
+
+### Fixed
+- Instagram image posts still failing when og:image meta tags are absent (JS-rendered pages)
+  - Added oEmbed fallback (`/api/v1/oembed/`) that works without authentication
+  - Returns 640x800 CDN thumbnail URL -- sufficient for image post extraction
+  - New fallback chain: API -> oEmbed -> og:image scraping
+  - oEmbed is tried before og:image since it is more reliable for unauthenticated requests
+
+### Added
+- `_instagram_oembed_fallback()` -- Instagram oEmbed API client for thumbnail extraction
+- `_instagram_fallback_chain()` -- unified fallback wrapper (oEmbed then og:image)
+
+## [1.3.2] - 2026-02-25
+
+### Fixed
+- Instagram image posts still failing with "No video formats found" despite v1.3.1 extraction
+  - Cookies were never threaded through to `extract_instagram_media_urls()` -- the `?__a=1&__d=dis` API endpoint returns 404 without auth
+  - Added `cookies_file` parameter to `download_platform_media()` and `extract_instagram_media_urls()`
+  - `download_from_url_multi()` now passes `cookies_file` to platform-specific extractors
+  - Cookies also passed to `_instagram_og_image_fallback()` for login-walled pages
+- Instagram CDN image downloads failing when CDN rejects HEAD requests
+  - HEAD pre-check is now non-fatal: logs a debug message and proceeds with GET
+- Hardened og:image fallback regex to handle both `property/content` and `content/property` attribute orderings
+
+### Added
+- `parse_netscape_cookies()` helper to read Netscape cookie files into HTTP Cookie header strings
+
+## [1.3.1] - 2026-02-25
+
+### Fixed
+- Reddit image posts failing with HTTP 429 (Too Many Requests)
+  - Bypasses yt-dlp entirely for image posts: fetches Reddit JSON directly via httpx
+  - Extracts image URLs from gallery posts (multi-image) and single image posts
+  - Constructs direct `i.redd.it` URLs from media_metadata for original quality
+  - Removed `--impersonate chrome` from Reddit yt-dlp args (did not fix 429)
+  - Video posts still fall through to yt-dlp as before
+- Instagram image posts failing with "No video formats found"
+  - Uses Instagram REST API (`?__a=1&__d=dis`) to extract media URLs directly
+  - Handles carousel posts (mixed images + videos), single images, and single videos
+  - Selects highest resolution from available candidates
+  - Falls back to og:image meta tag scraping if API endpoint fails
+  - Reels and video-only posts still fall through to yt-dlp
+
+### Added
+- Gallery/carousel support: single URL uploads now handle multi-image posts
+  - Reddit galleries download all images from the post
+  - Instagram carousels download all images and videos from the post
+  - All items uploaded to Immich; primary response returns first item
+- `extract_reddit_image_urls()` -- Reddit post JSON parser for image extraction
+- `extract_instagram_media_urls()` -- Instagram API client for media extraction
+- `download_platform_media()` -- unified platform-specific media downloader
+- `download_from_url_multi()` -- multi-result wrapper for gallery support
+
+## [1.3.0] - 2026-02-25
+
+### Added
+- Direct image URL download support (bypasses yt-dlp for image files)
+  - Downloads images via httpx with browser User-Agent, redirect following, and 100MB size limit
+  - File type detection via magic bytes (reuses shared detect_file_type utility)
+  - Known image-hosting domains: i.redd.it, i.imgur.com, pbs.twimg.com, preview.redd.it
+  - Any URL ending in .jpg, .jpeg, .png, .gif, .webp, .avif, .heic, .bmp, .tiff
+  - Works in both single and batch upload endpoints
+- Reddit URL patterns for i.redd.it and preview.redd.it image domains
+
+### Fixed
+- Reddit downloads failing with HTTP 429 (Too Many Requests)
+  - Added browser impersonation (`--impersonate chrome`) for Reddit, matching existing Facebook fix
+
+### Changed
+- Extracted detect_file_type into shared app/utils.py module (used by both api_routes and url_downloader)
+- Updated frontend description text to mention direct image URL support
+- is_supported_url now returns True for direct image URLs (not just platform-matched URLs)
+
 ## [1.2.9] - 2026-02-15
 
 ### Fixed

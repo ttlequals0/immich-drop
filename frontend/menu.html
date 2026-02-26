@@ -3,649 +3,104 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Menu – Immich Drop</title>
+  <title>Admin - Immich Drop</title>
   <link rel="icon" type="image/png" href="/static/favicon.png" />
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = { darkMode: 'class' };
-  </script>
+  <link rel="stylesheet" href="/static/styles.css" />
 </head>
-<body class="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
-  <div class="mx-auto max-w-2xl p-6 space-y-6">
-    <div id="topBanner" class="hidden rounded-2xl border border-green-200 bg-green-50 p-3 text-green-700 text-center dark:bg-green-900 dark:border-green-700 dark:text-green-300"></div>
-    <header class="flex items-center justify-between">
-      <h1 class="text-2xl font-semibold">Create Upload Link</h1>
-      <div class="flex items-center gap-2">
-        <a id="linkPublicUploader" href="/" class="hidden rounded-xl border px-3 py-1 text-sm dark:border-gray-600">Public uploader</a>
-        <a href="/logout" id="btnLogout" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600">Logout</a>
-        <button id="btnTheme" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600" title="Toggle dark mode">
-          <svg id="iconLight" class="w-4 h-4 hidden" fill="currentColor" viewBox="0 0 20 20">
+<body>
+  <div class="page-wrap page-wrap--wide">
+    <div id="topBanner" class="banner hidden"></div>
+
+    <header class="site-header">
+      <h1>Admin</h1>
+      <div class="header-actions">
+        <a id="linkPublicUploader" href="/" class="btn hidden">Public uploader</a>
+        <a href="/logout" id="btnLogout" class="btn">Logout</a>
+        <button id="btnTheme" class="btn btn--icon" title="Toggle dark mode" aria-label="Toggle theme">
+          <svg id="iconLight" class="hidden" fill="currentColor" viewBox="0 0 20 20" width="16" height="16">
             <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414z" clip-rule="evenodd"/>
           </svg>
-          <svg id="iconDark" class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+          <svg id="iconDark" fill="currentColor" viewBox="0 0 20 20" width="16" height="16">
             <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
           </svg>
         </button>
-        <button id="btnPing" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600">Test connection</button>
-        <span id="pingStatus" class="ml-2 text-sm text-gray-500 dark:text-gray-400"></span>
+        <button id="btnPing" class="btn">Test connection</button>
+        <span id="pingStatus" class="text-sm text-secondary"></span>
       </div>
     </header>
 
-    <section class="rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 space-y-4">
-      <div>
-        <div class="text-sm font-medium mb-1">Target album (optional)</div>
-        <div id="albumControls" class="space-y-2">
-          <div id="albumSelectWrap" class="hidden">
-            <select id="albumSelect" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700"></select>
-          </div>
+    <!-- Create Upload Link -->
+    <section class="card">
+      <div class="card-header"><h2>Create Upload Link</h2></div>
+      <div class="form-group">
+        <label class="form-label">Target album (optional)</label>
+        <div id="albumControls" class="space-y-sm">
+          <div id="albumSelectWrap" class="hidden"><select id="albumSelect" class="input"></select></div>
           <div id="albumInputWrap" class="hidden">
-            <input id="albumInput" placeholder="Album name (leave blank for none)" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" />
-            <button id="btnCreateAlbum" class="mt-2 w-full sm:w-auto rounded-xl border px-4 py-3 dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors">Create album</button>
+            <input id="albumInput" placeholder="Album name (leave blank for none)" class="input" />
+            <button id="btnCreateAlbum" class="btn mt-2">Create album</button>
           </div>
-          <div id="albumHint" class="text-sm text-gray-500"></div>
+          <div id="albumHint" class="form-hint"></div>
         </div>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <div class="text-sm font-medium mb-1">Usage</div>
-          <select id="usage" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700">
-            <option value="1">One-time</option>
-            <option value="-1">Indefinite</option>
-          </select>
-        </div>
-        <div>
-          <div class="text-sm font-medium mb-1">Expires in days</div>
-          <input id="days" type="number" min="0" placeholder="Leave empty for no expiry" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" />
-        </div>
-        <div>
-          <div class="text-sm font-medium mb-1">Password (optional)</div>
-          <input id="password" type="password" placeholder="Set a password for this link" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" />
-          <div class="mt-1 text-xs text-gray-500">Recipients must enter this password before uploading.</div>
-        </div>
+      <div class="form-row form-row--3">
+        <div><label class="form-label">Usage</label><select id="usage" class="input"><option value="1">One-time</option><option value="-1">Indefinite</option></select></div>
+        <div><label class="form-label">Expires in days</label><input id="days" type="number" min="0" placeholder="No expiry" class="input" /></div>
+        <div><label class="form-label">Password (optional)</label><input id="password" type="password" placeholder="Set a password" class="input" autocomplete="off" /><div class="form-hint">Recipients must enter this before uploading.</div></div>
       </div>
-      <div>
-        <button id="btnCreate" class="w-full sm:w-auto rounded-xl bg-black text-white px-5 py-3 dark:bg-white dark:text-black">Create link</button>
-      </div>
-      <div id="result" class="hidden rounded-xl border p-3 text-sm space-y-2">
-        <div id="linkRow" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-          <input id="linkOut" class="flex-1 rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700" readonly />
-          <button id="btnCopy" type="button" class="rounded-xl border px-4 py-3 text-sm dark:border-gray-600" aria-label="Copy link">Copy</button>
-        </div>
-        <div>
-          <img id="qrImg" alt="QR" class="h-32 w-32 md:h-40 md:w-40" />
-        </div>
+      <div class="mt-3"><button id="btnCreate" class="btn btn--primary">Create link</button></div>
+      <div id="result" class="hidden mt-3">
+        <div id="linkRow" class="flex gap-2" style="flex-wrap:wrap;"><input id="linkOut" class="input flex-1" readonly /><button id="btnCopy" type="button" class="btn">Copy</button></div>
+        <div class="mt-2"><img id="qrImg" alt="QR" style="width:140px;height:140px;" /></div>
       </div>
     </section>
 
-    <!-- Manage links -->
-    <section class="rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 space-y-3">
-      <div class="flex items-center justify-between gap-2 flex-wrap">
-        <h2 class="text-lg font-medium">Manage Links</h2>
-        <div class="flex items-center gap-2">
-          <input id="searchQ" placeholder="Search" class="rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700"/>
-          <select id="sortSel" class="rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700">
-            <option value="-created">Newest</option>
-            <option value="created">Oldest</option>
-            <option value="-expires">Expiry desc</option>
-            <option value="expires">Expiry asc</option>
-            <option value="name">Name A–Z</option>
-            <option value="-name">Name Z–A</option>
-          </select>
-          <button id="btnRefresh" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600">Refresh</button>
+    <!-- Manage Links -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Manage Links</h2>
+        <div class="flex gap-2 flex-wrap items-center">
+          <input id="searchQ" placeholder="Search..." class="input" style="width:140px;" />
+          <select id="sortSel" class="input" style="width:130px;"><option value="-created">Newest</option><option value="created">Oldest</option><option value="-expires">Expiry desc</option><option value="expires">Expiry asc</option><option value="name">Name A-Z</option><option value="-name">Name Z-A</option></select>
+          <button id="btnRefresh" class="btn btn--sm">Refresh</button>
         </div>
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="text-left border-b dark:border-gray-700">
-              <th class="py-2"><input id="chkAll" type="checkbox"/></th>
-              <th class="py-2" style="width: 45%;">Name</th>
-              <th class="py-2" style="width: 18%;">Status</th>
-              <th class="py-2">Uses</th>
-              <th class="py-2">Expires</th>
-              <th class="py-2">Album</th>
-              <th class="py-2">Actions</th>
-            </tr>
-          </thead>
+      <div style="overflow-x:auto;">
+        <table class="data-table data-table--responsive">
+          <thead><tr><th style="width:32px;"><input id="chkAll" type="checkbox"/></th><th>Name</th><th>Status</th><th>Uses</th><th>Expires</th><th>Album</th><th>Actions</th></tr></thead>
           <tbody id="invitesTBody"></tbody>
         </table>
       </div>
-      <!-- Footer inside the panel to keep bulk actions within the box -->
-      <div class="pt-3 mt-2 border-t dark:border-gray-700 flex items-center justify-end gap-2 flex-wrap">
-        <button id="btnDisableSel" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600">Disable selected</button>
-        <button id="btnEnableSel" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600">Enable selected</button>
-        <button id="btnDeleteSel" class="rounded-xl border px-3 py-2 text-sm border-red-400 text-red-600 dark:border-red-600">Delete selected</button>
+      <div class="flex justify-end gap-2 flex-wrap mt-3" style="padding-top:12px;border-top:1px solid var(--border);">
+        <button id="btnDisableSel" class="btn btn--sm">Disable selected</button>
+        <button id="btnEnableSel" class="btn btn--sm">Enable selected</button>
+        <button id="btnDeleteSel" class="btn btn--sm btn--danger">Delete selected</button>
       </div>
     </section>
 
-    <!-- Platform Cookies for authenticated downloads -->
-    <section class="rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 space-y-3">
-      <div class="flex items-center justify-between gap-2 flex-wrap">
-        <h2 class="text-lg font-medium">Platform Cookies</h2>
-        <button id="btnRefreshCookies" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600">Refresh</button>
+    <!-- Platform Cookies -->
+    <section class="card">
+      <div class="card-header"><h2>Platform Cookies</h2><button id="btnRefreshCookies" class="btn btn--sm">Refresh</button></div>
+      <p class="text-sm text-secondary mb-3">Add cookies for authenticated social media downloads. Paste the raw cookie header from your browser DevTools (Network tab).</p>
+      <div class="form-row" style="grid-template-columns:160px 1fr auto;align-items:end;">
+        <div><label class="form-label">Platform</label><select id="cookiePlatform" class="input"><option value="">Select...</option></select></div>
+        <div><label class="form-label">Cookie String</label><textarea id="cookieString" rows="2" placeholder="sessionid=abc123; csrftoken=xyz789; ..." class="input" style="font-family:var(--font-mono);font-size:0.8125rem;"></textarea></div>
+        <div><button id="btnSaveCookie" class="btn btn--primary">Save</button></div>
       </div>
-      <p class="text-sm text-gray-500 dark:text-gray-400">
-        Add cookies for authenticated downloads from social media platforms.
-        Paste the raw cookie header from your browser's developer tools (Network tab > Request Headers > Cookie).
-      </p>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-        <div>
-          <div class="text-sm font-medium mb-1">Platform</div>
-          <select id="cookiePlatform" class="w-full rounded-lg border px-3 py-3 bg-white dark:bg-gray-900 dark:border-gray-700">
-            <option value="">Select platform...</option>
-          </select>
-        </div>
-        <div class="md:col-span-2">
-          <div class="text-sm font-medium mb-1">Cookie String</div>
-          <textarea id="cookieString" rows="2" placeholder="sessionid=abc123; csrftoken=xyz789; ..." class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-900 dark:border-gray-700 text-sm font-mono"></textarea>
-        </div>
-        <div>
-          <button id="btnSaveCookie" class="w-full rounded-xl bg-black text-white px-4 py-3 dark:bg-white dark:text-black">Save Cookie</button>
-        </div>
-      </div>
-      <div id="cookieResult" class="hidden rounded-xl border p-3 text-sm"></div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="text-left border-b dark:border-gray-700">
-              <th class="py-2">Platform</th>
-              <th class="py-2">Cookie Preview</th>
-              <th class="py-2">Updated</th>
-              <th class="py-2">Actions</th>
-            </tr>
-          </thead>
+      <div id="cookieResult" class="banner hidden mt-3"></div>
+      <div style="overflow-x:auto;" class="mt-3">
+        <table class="data-table data-table--responsive">
+          <thead><tr><th>Platform</th><th>Cookie Preview</th><th>Updated</th><th>Actions</th></tr></thead>
           <tbody id="cookiesTBody"></tbody>
         </table>
       </div>
     </section>
 
-    <section class="text-xs text-gray-500">
-      If album listing or creation is forbidden by your token, specify a fixed album in the .env file as IMMICH_ALBUM_NAME.
-    </section>
-
-    <footer class="pt-4 pb-6 text-center text-xs text-gray-500 dark:text-gray-400">
-      <a id="version-link" href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener" class="underline hover:text-gray-700 dark:hover:text-gray-300">immich-drop</a>
-    </footer>
+    <div class="text-xs text-tertiary" style="margin-bottom:12px;">If album listing or creation is forbidden by your token, specify a fixed album in the .env file as IMMICH_ALBUM_NAME.</div>
+    <footer class="site-footer"><a id="version-link" href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener">immich-drop</a></footer>
   </div>
 
   <script src="/static/header.js"></script>
-  <script>
-    const albumSelectWrap = document.getElementById('albumSelectWrap');
-    const albumSelect = document.getElementById('albumSelect');
-    const albumInputWrap = document.getElementById('albumInputWrap');
-    const albumInput = document.getElementById('albumInput');
-    const albumHint = document.getElementById('albumHint');
-    const btnCreateAlbum = document.getElementById('btnCreateAlbum');
-    const btnCreate = document.getElementById('btnCreate');
-    const usage = document.getElementById('usage');
-    const days = document.getElementById('days');
-    const result = document.getElementById('result');
-    const btnLogout = document.getElementById('btnLogout');
-    const btnTheme = document.getElementById('btnTheme');
-    const btnPing = document.getElementById('btnPing');
-    const pingStatus = document.getElementById('pingStatus');
-    const linkOut = document.getElementById('linkOut');
-    const btnCopy = document.getElementById('btnCopy');
-    const qrImg = document.getElementById('qrImg');
-    const passwordInput = document.getElementById('password');
-
-    function showResult(kind, text){
-      result.className = 'rounded-xl border p-3 text-sm space-y-2 ' + (kind==='ok' ? 'border-green-200 bg-green-50 text-green-700 dark:bg-green-900 dark:border-green-700 dark:text-green-300' : 'border-red-200 bg-red-50 text-red-700 dark:bg-red-900 dark:border-red-700 dark:text-red-300');
-      result.classList.remove('hidden');
-    }
-
-    async function loadAlbums(){
-      try {
-        const r = await fetch('/api/albums');
-        if (r.status === 403) {
-          albumHint.textContent = 'Listing albums is forbidden with current credentials. You can still type a new album name or leave it blank to upload without an album. If IMMICH_ALBUM_NAME is set in .env, that will be used for non-invite uploads.';
-          albumInputWrap.classList.remove('hidden');
-          return;
-        }
-        const list = await r.json();
-        if (Array.isArray(list)){
-          const opts = [{id:'', name:'— No album —'}].concat(list.map(a => ({id:a.id, name:(a.albumName || a.title || a.id)})));
-          albumSelect.innerHTML = opts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
-          albumSelectWrap.classList.remove('hidden');
-          albumInputWrap.classList.remove('hidden');
-          albumHint.textContent = 'Pick an existing album, or type a new name and click Create album. Select “— No album —” or leave the field blank to skip album association.';
-        }
-      } catch (e) {
-        albumHint.textContent = 'Failed to load albums.';
-      }
-    }
-
-    btnCreateAlbum.onclick = async () => {
-      const name = albumInput.value.trim();
-      if (!name) return;
-      try{
-        const r = await fetch('/api/albums', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify({ name }) });
-        const j = await r.json().catch(()=>({}));
-        if(!r.ok){ showResult('err', j.error || 'Album create failed'); return; }
-        showResult('ok', `Album created: ${j.albumName || j.id || name}`);
-        try { await loadAlbums(); } catch {}
-      }catch(err){ showResult('err', String(err)); }
-    };
-
-    btnCreate.onclick = async () => {
-      let albumId = null, albumName = null;
-      if (!albumSelectWrap.classList.contains('hidden') && albumSelect.value) {
-        albumId = albumSelect.value;
-      } else if (albumInput.value.trim()) {
-        albumName = albumInput.value.trim();
-      }
-      const payload = { maxUses: parseInt(usage.value, 10) };
-      const d = days.value.trim();
-      if (d) payload.expiresDays = parseInt(d, 10);
-      if (albumId) payload.albumId = albumId; else if (albumName) payload.albumName = albumName;
-      const pw = (passwordInput && passwordInput.value) ? passwordInput.value.trim() : '';
-      if (pw) payload.password = pw;
-      try{
-        const r = await fetch('/api/invites', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(payload) });
-        const j = await r.json().catch(()=>({}));
-        if(!r.ok){ showResult('err', j.error || 'Failed to create link'); return; }
-        const link = j.absoluteUrl || (location.origin + j.url);
-        showResult('ok', '');
-        linkOut.value = link;
-        // Build QR via backend PNG generator (no external libs)
-        qrImg.src = `/api/qr?text=${encodeURIComponent(link)}`;
-        // Also refresh the managed links list and highlight the new entry
-        if (j && j.token) { try { LAST_CREATED_TOKEN = j.token; } catch {} }
-        try { await loadInvites(); } catch {}
-      }catch(err){ showResult('err', String(err)); }
-    };
-
-    // Logout handled via plain link to /logout (clears session + redirects)
-    btnCopy.onclick = ()=>{
-      const text = linkOut.value || '';
-      if (!text) return;
-      const flash = ()=>{ btnCopy.textContent='Copied'; setTimeout(()=>btnCopy.textContent='Copy', 1200); };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(flash).catch(()=>{
-          try{ const ta=document.createElement('textarea'); ta.value=text; ta.setAttribute('readonly',''); ta.style.position='absolute'; ta.style.left='-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); flash(); }catch{}
-        });
-      } else {
-        try{ const ta=document.createElement('textarea'); ta.value=text; ta.setAttribute('readonly',''); ta.style.position='absolute'; ta.style.left='-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); flash(); }catch{}
-      }
-    };
-    // header.js wires theme + ping and shows banner consistently
-    
-    loadAlbums();
-
-    // --- Manage UI logic ---
-    const searchQ = document.getElementById('searchQ');
-    const sortSel = document.getElementById('sortSel');
-    const btnRefresh = document.getElementById('btnRefresh');
-    const invitesTBody = document.getElementById('invitesTBody');
-    const chkAll = document.getElementById('chkAll');
-    const btnDisableSel = document.getElementById('btnDisableSel');
-    const btnEnableSel = document.getElementById('btnEnableSel');
-    const btnDeleteSel = document.getElementById('btnDeleteSel');
-    let INVITES = [];
-    let LAST_CREATED_TOKEN = null;
-
-    async function loadInvites(){
-      const params = new URLSearchParams();
-      const q = (searchQ.value||'').trim(); if (q) params.set('q', q);
-      const sort = (sortSel.value||'').trim(); if (sort) params.set('sort', sort);
-      try{
-        const r = await fetch('/api/invites?'+params.toString());
-        const j = await r.json();
-        INVITES = (j && j.items) ? j.items : [];
-      }catch{ INVITES = []; }
-      renderInvites();
-    }
-    function fmtDayMonth(iso){ try{ const d = new Date(iso); return d.toLocaleDateString(undefined,{ day:'2-digit', month:'short' }); }catch{return '—';} }
-    function statusBadge(row){
-      // Red reasons override disabled (yellow)
-      const inactive = String(row.inactiveReason||'');
-      if (/expired|claimed|exhausted/i.test(inactive)){
-        const label = inactive.charAt(0).toUpperCase()+inactive.slice(1);
-        return `<span class="inline-flex items-center rounded-full bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 px-2 py-0.5">${label}</span>`;
-      }
-      if (row.active){
-        return `<span class="inline-flex items-center rounded-full bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5">Active</span>`;
-      }
-      if (/disabled/i.test(inactive)){
-        return `<span class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5">Disabled</span>`;
-      }
-      return `<span>${row.active?'Active':'Inactive'}</span>`;
-    }
-    function renderInvites(){
-      invitesTBody.innerHTML = INVITES.map(row => {
-        const status = statusBadge(row);
-        const uses = (typeof row.remaining==='number') ? `${row.used||0}/${(row.maxUses<0)?'∞':row.maxUses}` : `${row.used||0}/${(row.maxUses<0)?'∞':row.maxUses??'?'}`;
-        const exp = row.expiresAt ? `<span title="${new Date(row.expiresAt).toLocaleString()}">${fmtDayMonth(row.expiresAt)}</span>` : '—';
-        const url = location.origin + '/invite/' + row.token;
-        return `
-          <tr class="border-b dark:border-gray-800" data-token="${row.token}">
-            <td class="py-2"><input class="chkRow" type="checkbox" data-token="${row.token}"/></td>
-            <td class="py-2" style="width:45%;">
-              <input class="inName w-full rounded border px-2 py-1 bg-white dark:bg-gray-900 dark:border-gray-700" data-token="${row.token}" value="${(row.name||'').replaceAll('"','&quot;')}" title="${(row.name||'').replaceAll('"','&quot;')}"/>
-            </td>
-            <td class="py-2">${status}</td>
-            <td class="py-2">${uses}</td>
-            <td class="py-2">
-              <input class="inExpires w-36 rounded border px-2 py-1 bg-white dark:bg-gray-900 dark:border-gray-700" type="date" data-token="${row.token}" value="${row.expiresAt? new Date(row.expiresAt).toISOString().slice(0,10):''}" title="${row.expiresAt? new Date(row.expiresAt).toLocaleString():''}"/>
-            </td>
-            <td class="py-2">${row.albumName || '—'}</td>
-            <td class="py-2">
-              <div class="flex items-center gap-1 whitespace-nowrap">
-                <button class="btnDetails group relative rounded-xl border px-2 py-1 text-xs dark:border-gray-600 inline-flex items-center" data-token="${row.token}" aria-label="Show details">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 1 0 18A9 9 0 0 1 12 3zm0 4a1.25 1.25 0 1 0 0 2.5A1.25 1.25 0 0 0 12 7zm-1.5 4.5h3v6h-3v-6z"/></svg>
-                  <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded bg-black text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 dark:bg-gray-700">Details</span>
-                </button>
-                <button class="btnQR group relative rounded-xl border px-2 py-1 text-xs dark:border-gray-600 inline-flex items-center" data-url="${url}" aria-label="Show QR code">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm12 0h-2v2h2v2h-4v2h6v-6h-2v0zm-4-2h2v2h-2v-2zm6-2h2v2h-2v-2z"/></svg>
-                  <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded bg-black text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 dark:bg-gray-700">Show QR</span>
-                </button>
-                <a class="group relative rounded-xl border px-2 py-1 text-xs dark:border-gray-600 inline-flex items-center" target="_blank" href="${url}" aria-label="Open link">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M14 3h7v7h-2V6.414l-9.293 9.293-1.414-1.414L17.586 5H14V3z"/><path d="M5 5h6v2H7v10h10v-4h2v6H5V5z"/></svg>
-                  <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded bg-black text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 dark:bg-gray-700">Open</span>
-                </a>
-                <button class="btnCopyLink group relative rounded-xl border px-2 py-1 text-xs dark:border-gray-600 inline-flex items-center" data-url="${url}" aria-label="Copy link">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4a2 2 0 0 0-2 2v12h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14h13a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>
-                  <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded bg-black text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 dark:bg-gray-700">Copy</span>
-                </button>
-                <button class="btnSave group relative rounded-xl border px-2 py-1 text-xs dark:border-gray-600 inline-flex items-center opacity-50 cursor-not-allowed" data-token="${row.token}" aria-label="Save changes" disabled>
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H7a2 2 0 0 0-2 2v14l7-3 7 3V5a2 2 0 0 0-2-2zM7 5h10v10l-5-2-5 2V5z"/></svg>
-                  <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded bg-black text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 dark:bg-gray-700">Save</span>
-                </button>
-              </div>
-            </td>
-          </tr>`;
-      }).join('');
-      // wire row actions
-      // helper to compute change state and toggle Save
-      function updateSaveState(token){
-        const inName = invitesTBody.querySelector(`.inName[data-token="${token}"]`);
-        const inExp = invitesTBody.querySelector(`.inExpires[data-token="${token}"]`);
-        const btn = invitesTBody.querySelector(`.btnSave[data-token="${token}"]`);
-        if (!inName || !inExp || !btn) return;
-        const origName = inName.getAttribute('data-original') || '';
-        const origExp = inExp.getAttribute('data-original') || '';
-        const curName = (inName.value||'').trim();
-        const curExp = inExp.value || '';
-        const changed = (curName !== origName) || (curExp !== origExp);
-        btn.disabled = !changed;
-        btn.classList.toggle('opacity-50', !changed);
-        btn.classList.toggle('cursor-not-allowed', !changed);
-      }
-      // set original values as data attributes and wire change listeners
-      INVITES.forEach(row => {
-        const token = row.token;
-        const inName = invitesTBody.querySelector(`.inName[data-token="${token}"]`);
-        const inExp = invitesTBody.querySelector(`.inExpires[data-token="${token}"]`);
-        if (inName) inName.setAttribute('data-original', (row.name||'').trim());
-        const dStr = row.expiresAt? new Date(row.expiresAt).toISOString().slice(0,10) : '';
-        if (inExp) inExp.setAttribute('data-original', dStr);
-        if (inName) inName.addEventListener('input', ()=>updateSaveState(token));
-        if (inExp) inExp.addEventListener('change', ()=>updateSaveState(token));
-        updateSaveState(token);
-      });
-
-      invitesTBody.querySelectorAll('.btnSave').forEach(btn => btn.onclick = async ()=>{
-        const token = btn.getAttribute('data-token');
-        if (btn.disabled) return;
-        const name = invitesTBody.querySelector(`.inName[data-token="${token}"]`).value.trim();
-        const expVal = invitesTBody.querySelector(`.inExpires[data-token="${token}"]`).value;
-        const payload = { name };
-        if (expVal) {
-          // Set to end-of-day local to avoid off-by-one day on save
-          const dt = new Date(expVal);
-          dt.setHours(23,59,59,999);
-          payload.expiresAt = dt.toISOString().slice(0,19);
-        } else { payload.expiresAt = null; }
-        try{
-          const r = await fetch(`/api/invite/${token}`, { method:'PATCH', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(payload) });
-          if (!r.ok) throw new Error('Update failed');
-          await loadInvites();
-        }catch(e){ showResult('err', String(e.message||e)); }
-      });
-      invitesTBody.querySelectorAll('.btnDetails').forEach(btn => btn.onclick = async ()=>{
-        const token = btn.getAttribute('data-token');
-        try{
-          const r = await fetch(`/api/invite/${token}/uploads`);
-          const j = await r.json();
-          const items = (j && j.items) ? j.items : [];
-          const html = `
-            <div class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-              <div class="max-w-3xl w-full rounded-2xl bg-white dark:bg-gray-900 border dark:border-gray-700 p-4">
-                <div class="flex items-center justify-between mb-2">
-                  <div class="text-lg font-medium">Uploads</div>
-                  <button class="dlgClose rounded-lg border px-2 py-1 text-xs dark:border-gray-600">Close</button>
-                </div>
-                <div class="max-h-[60vh] overflow-auto">
-                  ${items.length? `<table class="w-full text-sm"><thead><tr class="text-left border-b dark:border-gray-700"><th class="py-1">When</th><th class="py-1">IP</th><th class="py-1">Filename</th><th class="py-1">Size</th><th class="py-1">Fingerprint</th></tr></thead><tbody>` + items.map(it=>`<tr class="border-b dark:border-gray-800"><td class="py-1">${new Date(it.uploadedAt).toLocaleString()}</td><td class="py-1">${it.ip||''}</td><td class="py-1">${it.filename||''}</td><td class="py-1">${(it.size||0).toLocaleString()}</td><td class="py-1">${(it.fingerprint||'').slice(0,16)}</td></tr>`).join('') + `</tbody></table>` : '<div class="text-sm text-gray-500">No uploads yet.</div>'}
-                </div>
-              </div>
-            </div>`;
-          const wrap = document.createElement('div');
-          wrap.innerHTML = html;
-          const dlg = wrap.firstElementChild;
-          document.body.appendChild(dlg);
-          dlg.querySelectorAll('.dlgClose').forEach(b=> b.onclick = ()=>{ try{ dlg.remove(); }catch{} });
-        }catch(e){ showResult('err', 'Failed to load uploads'); }
-      });
-      invitesTBody.querySelectorAll('.btnQR').forEach(btn => btn.onclick = ()=>{
-        const url = btn.getAttribute('data-url');
-        const html = `
-          <div class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <div class="max-w-md w-full rounded-2xl bg-white dark:bg-gray-900 border dark:border-gray-700 p-4">
-              <div class="flex items-center justify-between mb-2">
-                <div class="text-lg font-medium">QR Code</div>
-                <button class="dlgClose rounded-lg border px-2 py-1 text-xs dark:border-gray-600">Close</button>
-              </div>
-              <div class="flex items-center gap-4">
-                <img src="/api/qr?text=${encodeURIComponent(url)}" alt="QR" class="h-40 w-40"/>
-                <div class="text-sm break-all">${url}</div>
-              </div>
-            </div>
-          </div>`;
-        const wrap = document.createElement('div');
-        wrap.innerHTML = html;
-        const dlg = wrap.firstElementChild;
-        document.body.appendChild(dlg);
-        dlg.querySelectorAll('.dlgClose').forEach(b=> b.onclick = ()=>{ try{ dlg.remove(); }catch{} });
-      });
-      invitesTBody.querySelectorAll('.btnCopyLink').forEach(btn => btn.onclick = ()=>{
-        const url = btn.getAttribute('data-url');
-        const flash = ()=>{ btn.setAttribute('data-old', btn.innerHTML); btn.innerHTML='Copied'; setTimeout(()=>{ const old=btn.getAttribute('data-old'); if(old) btn.innerHTML=old; }, 1000); };
-        if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(url).then(flash).catch(()=>{}); }
-      });
-      if (chkAll) chkAll.checked = false;
-      // Highlight and scroll to newly created invite if present
-      if (LAST_CREATED_TOKEN) {
-        const tr = invitesTBody.querySelector(`tr[data-token="${LAST_CREATED_TOKEN}"]`);
-        if (tr) {
-          tr.classList.add('bg-yellow-50','dark:bg-yellow-900/30');
-          try { tr.scrollIntoView({ behavior:'smooth', block:'center' }); } catch {}
-          setTimeout(()=>{ try{ tr.classList.remove('bg-yellow-50','dark:bg-yellow-900/30'); }catch{} }, 1600);
-        }
-        LAST_CREATED_TOKEN = null;
-      }
-    }
-    btnRefresh.onclick = loadInvites;
-    searchQ.oninput = ()=>{ clearTimeout(searchQ._t); searchQ._t = setTimeout(loadInvites, 300); };
-    sortSel.onchange = loadInvites;
-    chkAll.onchange = ()=>{ invitesTBody.querySelectorAll('.chkRow').forEach(c=>{ c.checked = chkAll.checked; }); };
-    btnDisableSel.onclick = async ()=>{
-      const toks = Array.from(invitesTBody.querySelectorAll('.chkRow:checked')).map(x=>x.getAttribute('data-token'));
-      if (!toks.length) return;
-      try{
-        const r = await fetch('/api/invites/bulk', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify({ tokens: toks, action:'disable' }) });
-        if (!r.ok) throw new Error('Bulk disable failed');
-        await loadInvites();
-      }catch(e){ showResult('err', String(e.message||e)); }
-    };
-    btnEnableSel.onclick = async ()=>{
-      const toks = Array.from(invitesTBody.querySelectorAll('.chkRow:checked')).map(x=>x.getAttribute('data-token'));
-      if (!toks.length) return;
-      try{
-        const r = await fetch('/api/invites/bulk', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify({ tokens: toks, action:'enable' }) });
-        if (!r.ok) throw new Error('Bulk enable failed');
-        await loadInvites();
-      }catch(e){ showResult('err', String(e.message||e)); }
-    };
-    btnDeleteSel.onclick = async ()=>{
-      const toks = Array.from(invitesTBody.querySelectorAll('.chkRow:checked')).map(x=>x.getAttribute('data-token'));
-      if (!toks.length) return;
-      if (!confirm('Are you sure? This cannot be undone.')) return;
-      try{
-        const r = await fetch('/api/invites/delete', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify({ tokens: toks }) });
-        if (!r.ok) throw new Error('Delete failed');
-        await loadInvites();
-      }catch(e){ showResult('err', String(e.message||e)); }
-    };
-
-    // Initial load
-    loadInvites();
-
-    // --- Platform Cookies UI logic ---
-    const cookiePlatform = document.getElementById('cookiePlatform');
-    const cookieString = document.getElementById('cookieString');
-    const btnSaveCookie = document.getElementById('btnSaveCookie');
-    const btnRefreshCookies = document.getElementById('btnRefreshCookies');
-    const cookiesTBody = document.getElementById('cookiesTBody');
-    const cookieResult = document.getElementById('cookieResult');
-    let COOKIES = [];
-    let PLATFORMS = [];
-
-    function showCookieResult(kind, text) {
-      cookieResult.className = 'rounded-xl border p-3 text-sm ' + (kind === 'ok'
-        ? 'border-green-200 bg-green-50 text-green-700 dark:bg-green-900 dark:border-green-700 dark:text-green-300'
-        : 'border-red-200 bg-red-50 text-red-700 dark:bg-red-900 dark:border-red-700 dark:text-red-300');
-      cookieResult.textContent = text;
-      cookieResult.classList.remove('hidden');
-      setTimeout(() => { cookieResult.classList.add('hidden'); }, 3000);
-    }
-
-    async function loadCookies() {
-      try {
-        const r = await fetch('/api/cookies');
-        const j = await r.json();
-        COOKIES = (j && j.items) ? j.items : [];
-        PLATFORMS = (j && j.platforms) ? j.platforms : [];
-        // Populate platform dropdown
-        cookiePlatform.innerHTML = '<option value="">Select platform...</option>' +
-          PLATFORMS.map(p => `<option value="${p}">${p.charAt(0).toUpperCase() + p.slice(1)}</option>`).join('');
-      } catch {
-        COOKIES = [];
-        PLATFORMS = [];
-      }
-      renderCookies();
-    }
-
-    function fmtDate(iso) {
-      try {
-        const d = new Date(iso);
-        return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: '2-digit' });
-      } catch {
-        return '-';
-      }
-    }
-
-    function renderCookies() {
-      if (COOKIES.length === 0) {
-        cookiesTBody.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-gray-500">No cookies configured. Add one above to enable authenticated downloads.</td></tr>';
-        return;
-      }
-      cookiesTBody.innerHTML = COOKIES.map(c => {
-        const preview = c.cookie_preview || (c.cookie_string ? c.cookie_string.slice(0, 40) + '...' : '');
-        return `
-          <tr class="border-b dark:border-gray-800" data-platform="${c.platform}">
-            <td class="py-2 font-medium">${c.platform.charAt(0).toUpperCase() + c.platform.slice(1)}</td>
-            <td class="py-2 font-mono text-xs text-gray-600 dark:text-gray-400">${preview}</td>
-            <td class="py-2">${fmtDate(c.updated_at)}</td>
-            <td class="py-2">
-              <div class="flex items-center gap-1">
-                <button class="btnEditCookie group relative rounded-xl border px-2 py-1 text-xs dark:border-gray-600 inline-flex items-center" data-platform="${c.platform}" data-cookie="${(c.cookie_string || '').replaceAll('"', '&quot;')}" aria-label="Edit cookie">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-                  <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded bg-black text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 dark:bg-gray-700">Edit</span>
-                </button>
-                <button class="btnDeleteCookie group relative rounded-xl border px-2 py-1 text-xs border-red-400 text-red-600 dark:border-red-600 inline-flex items-center" data-platform="${c.platform}" aria-label="Delete cookie">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                  <span class="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded bg-black text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 dark:bg-gray-700">Delete</span>
-                </button>
-              </div>
-            </td>
-          </tr>`;
-      }).join('');
-
-      // Wire edit buttons
-      cookiesTBody.querySelectorAll('.btnEditCookie').forEach(btn => {
-        btn.onclick = () => {
-          const platform = btn.getAttribute('data-platform');
-          const cookie = btn.getAttribute('data-cookie');
-          cookiePlatform.value = platform;
-          cookieString.value = cookie;
-          cookieString.focus();
-        };
-      });
-
-      // Wire delete buttons
-      cookiesTBody.querySelectorAll('.btnDeleteCookie').forEach(btn => {
-        btn.onclick = async () => {
-          const platform = btn.getAttribute('data-platform');
-          if (!confirm(`Delete cookies for ${platform}?`)) return;
-          try {
-            const r = await fetch(`/api/cookies/${platform}`, { method: 'DELETE' });
-            if (!r.ok) throw new Error('Delete failed');
-            showCookieResult('ok', `Deleted cookies for ${platform}`);
-            await loadCookies();
-          } catch (e) {
-            showCookieResult('err', String(e.message || e));
-          }
-        };
-      });
-    }
-
-    btnSaveCookie.onclick = async () => {
-      const platform = cookiePlatform.value.trim();
-      const cookie = cookieString.value.trim();
-      if (!platform) {
-        showCookieResult('err', 'Please select a platform');
-        return;
-      }
-      if (!cookie) {
-        showCookieResult('err', 'Please enter a cookie string');
-        return;
-      }
-      try {
-        const r = await fetch('/api/cookies', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ platform, cookie_string: cookie })
-        });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) {
-          showCookieResult('err', j.error || 'Save failed');
-          return;
-        }
-        showCookieResult('ok', `Saved cookies for ${platform}`);
-        cookiePlatform.value = '';
-        cookieString.value = '';
-        await loadCookies();
-      } catch (e) {
-        showCookieResult('err', String(e.message || e));
-      }
-    };
-
-    btnRefreshCookies.onclick = loadCookies;
-
-    // Load cookies on page load
-    loadCookies();
-
-    // Fetch version dynamically
-    fetch('/api/config')
-      .then(r => r.json())
-      .then(data => {
-        const versionEl = document.getElementById('version-link');
-        if (versionEl && data.version) {
-          versionEl.textContent = 'immich-drop v' + data.version;
-        }
-      })
-      .catch(() => {});
-  </script>
+  <script src="/static/menu.js"></script>
 </body>
 </html>

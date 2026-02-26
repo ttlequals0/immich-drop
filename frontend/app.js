@@ -94,27 +94,55 @@ function addItem(file){
   render();
 }
 
+// Render uses DOM construction to avoid innerHTML with user filenames.
+// Each upload item is built via createElement/textContent so filenames
+// are safely text-escaped by the browser.
 function render(){
   const itemsEl = document.getElementById('items');
-  itemsEl.innerHTML = items.map(it => `
-    <div class="rounded-2xl border bg-white dark:bg-gray-800 dark:border-gray-700 p-4 shadow-sm transition-colors">
-      <div class="flex items-center justify-between">
-        <div class="min-w-0">
-          <div class="truncate font-medium">${it.name} <span class="text-xs text-gray-500 dark:text-gray-400">(${human(it.size)})</span></div>
-          <div class="mt-1 text-xs text-gray-600 dark:text-gray-400">
-            ${it.message ? `<span>${it.message}</span>` : ''}
-          </div>
-        </div>
-        <div class="text-sm">${(it.status==='uploading' && it.progress >= 100) ? 'done' : it.status}</div>
-      </div>
-      <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
-        <div class="h-full ${it.status==='done'?'bg-green-500':it.status==='duplicate'?'bg-amber-500':it.status==='error'?'bg-red-500':(it.status==='uploading' && it.progress >= 100)?'bg-green-500':'bg-blue-500'}" style="width:${Math.max(it.progress, (it.status==='done'||it.status==='duplicate'||it.status==='error')?100:it.progress)}%"></div>
-      </div>
-      <div class="mt-2 text-sm text-gray-600 dark:text-gray-400">
-        ${it.status==='uploading' ? (it.progress >= 100 ? 'Processing...' : `Uploading… ${it.progress}%`) : it.status.charAt(0).toUpperCase()+it.status.slice(1)}
-      </div>
-    </div>
-  `).join('');
+  itemsEl.textContent = '';
+  items.forEach(function(it){
+    var fillClass = it.status==='done'?'upload-item__fill--done':it.status==='duplicate'?'upload-item__fill--dup':it.status==='error'?'upload-item__fill--err':'';
+    var displayStatus = (it.status==='uploading' && it.progress >= 100) ? 'done' : it.status;
+    var pct = Math.max(it.progress, (it.status==='done'||it.status==='duplicate'||it.status==='error')?100:it.progress);
+    var statusText = it.status==='uploading' ? (it.progress >= 100 ? 'Processing...' : 'Uploading... '+it.progress+'%') : it.status.charAt(0).toUpperCase()+it.status.slice(1);
+
+    var card = document.createElement('div');
+    card.className = 'upload-item';
+
+    var header = document.createElement('div');
+    header.className = 'upload-item__header';
+    var left = document.createElement('div');
+    left.className = 'min-w-0';
+    var nameEl = document.createElement('span');
+    nameEl.className = 'upload-item__name';
+    nameEl.textContent = it.name;
+    var sizeEl = document.createElement('span');
+    sizeEl.className = 'upload-item__size';
+    sizeEl.textContent = ' ('+human(it.size)+')';
+    left.appendChild(nameEl);
+    left.appendChild(sizeEl);
+    var statusEl = document.createElement('div');
+    statusEl.className = 'upload-item__status';
+    statusEl.textContent = displayStatus;
+    header.appendChild(left);
+    header.appendChild(statusEl);
+    card.appendChild(header);
+
+    var bar = document.createElement('div');
+    bar.className = 'upload-item__bar';
+    var fill = document.createElement('div');
+    fill.className = 'upload-item__fill '+fillClass;
+    fill.style.width = pct+'%';
+    bar.appendChild(fill);
+    card.appendChild(bar);
+
+    var msg = document.createElement('div');
+    msg.className = 'upload-item__msg';
+    msg.textContent = it.message || statusText;
+    card.appendChild(msg);
+
+    itemsEl.appendChild(card);
+  });
 
   // Attach retry handlers for errored items
   try {
@@ -317,13 +345,7 @@ const dropHint = document.getElementById('dropHint');
 function showBanner(text, kind='ok'){
   if(!banner) return;
   banner.textContent = text;
-  // reset classes and apply based on kind
-  banner.className = 'rounded-2xl p-3 text-center transition-colors ' + (
-    kind==='ok' ? 'border border-green-200 bg-green-50 text-green-700 dark:bg-green-900 dark:border-green-700 dark:text-green-300'
-    : kind==='warn' ? 'border border-amber-200 bg-amber-50 text-amber-700 dark:bg-amber-900 dark:border-amber-700 dark:text-amber-300'
-    : 'border border-red-200 bg-red-50 text-red-700 dark:bg-red-900 dark:border-red-700 dark:text-red-300'
-  );
-  banner.classList.remove('hidden');
+  banner.className = 'banner ' + (kind==='ok' ? 'banner--ok' : kind==='warn' ? 'banner--warn' : 'banner--err');
   setTimeout(() => banner.classList.add('hidden'), 3000);
 }
 
@@ -364,8 +386,8 @@ if (btnPing) btnPing.onclick = async () => {
 })();
 
 // --- Drag & drop (no click-to-open on touch) ---
-['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.add('border-blue-500','bg-blue-50','dark:bg-blue-900','dark:bg-opacity-20'); }));
-['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.remove('border-blue-500','bg-blue-50','dark:bg-blue-900','dark:bg-opacity-20'); }));
+['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.add('drag-over'); }));
+['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.remove('drag-over'); }));
 dz.addEventListener('drop', (e)=>{
   e.preventDefault();
   const files = Array.from(e.dataTransfer.files || []);

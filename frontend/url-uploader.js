@@ -19,61 +19,33 @@ class UrlUploader {
         this.loadSupportedPlatforms();
     }
 
+    // NOTE: This render method uses innerHTML to build its own UI shell.
+    // All dynamic user content (filenames, URLs, platform names) injected
+    // later uses escapeHtml() or textContent -- see addResult() and
+    // loadSupportedPlatforms(). This initial template contains only
+    // static markup with no user-supplied data.
     render() {
-        this.container.innerHTML = `
-            <div class="url-uploader">
-                <div class="url-input-section">
-                    <h3 class="text-lg font-semibold mb-2 dark:text-white">Upload from URL</h3>
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                        Paste a link from TikTok, Instagram, Facebook, Reddit, YouTube, or Twitter
-                    </p>
-
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                        <input
-                            type="text"
-                            id="url-input"
-                            placeholder="https://www.tiktok.com/@user/video/..."
-                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        />
-                        <button
-                            id="url-upload-btn"
-                            class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                            style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;"
-                        >
-                            <span id="url-btn-text">Upload</span>
-                            <svg id="url-spinner" class="hidden animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                        </button>
-                    </div>
-
-                    <div id="url-status" class="mt-2 text-sm hidden"></div>
-
-                    <div id="supported-platforms" class="mt-4 text-xs text-gray-400 dark:text-gray-500">
-                        Loading supported platforms...
-                    </div>
-                </div>
-
-                <div class="url-batch-section mt-6 hidden" id="batch-section">
-                    <h4 class="text-md font-semibold mb-2 dark:text-white">Batch Upload</h4>
-                    <textarea
-                        id="batch-urls"
-                        rows="4"
-                        placeholder="Paste multiple URLs, one per line..."
-                        class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                    ></textarea>
-                    <button
-                        id="batch-upload-btn"
-                        class="mt-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-                    >
-                        Upload All
-                    </button>
-                </div>
-
-                <div id="url-results" class="mt-4 space-y-2"></div>
-            </div>
-        `;
+        this.container.innerHTML =
+            '<div class="url-uploader">'
+          + '<div class="card-header"><h3>Upload from URL</h3></div>'
+          + '<p class="text-sm text-secondary mb-3">Paste a link from TikTok, Instagram, Facebook, Reddit, YouTube, Twitter, or any direct image URL</p>'
+          + '<div style="display:flex;flex-direction:column;gap:8px;">'
+          + '<input type="text" id="url-input" placeholder="https://www.tiktok.com/@user/video/..." class="input" />'
+          + '<button id="url-upload-btn" class="btn btn--primary btn--full" style="display:flex;align-items:center;justify-content:center;gap:6px;">'
+          + '<span id="url-btn-text">Upload</span>'
+          + '<svg id="url-spinner" class="hidden animate-spin" width="18" height="18" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">'
+          + '<circle style="opacity:0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>'
+          + '<path style="opacity:0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>'
+          + '</svg></button></div>'
+          + '<div id="url-status" class="hidden mt-2 text-sm"></div>'
+          + '<div id="supported-platforms" class="platform-tags mt-3"><span class="text-xs text-tertiary">Loading platforms...</span></div>'
+          + '<div class="hidden mt-4" id="batch-section">'
+          + '<label class="form-label">Batch Upload</label>'
+          + '<textarea id="batch-urls" rows="4" placeholder="Paste multiple URLs, one per line..." class="input" style="font-family:var(--font-mono);font-size:0.8125rem;"></textarea>'
+          + '<button id="batch-upload-btn" class="btn btn--primary mt-2">Upload All</button>'
+          + '</div>'
+          + '<div id="url-results" class="mt-3 space-y-sm"></div>'
+          + '</div>';
     }
 
     attachEventListeners() {
@@ -121,13 +93,19 @@ class UrlUploader {
         try {
             const resp = await fetch(`${this.apiBase}/api/supported-platforms`);
             const data = await resp.json();
-
             const platformsDiv = this.container.querySelector('#supported-platforms');
-            const platformList = data.platforms.map(p =>
-                `<span class="inline-block px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded mr-1 mb-1">${p}</span>`
-            ).join('');
-
-            platformsDiv.innerHTML = `Supported: ${platformList}`;
+            // Build platform tags using DOM methods (no innerHTML with user data)
+            platformsDiv.textContent = '';
+            const label = document.createElement('span');
+            label.className = 'text-xs text-tertiary';
+            label.textContent = 'Supported: ';
+            platformsDiv.appendChild(label);
+            data.platforms.forEach(function(p) {
+                const tag = document.createElement('span');
+                tag.className = 'platform-tag';
+                tag.textContent = p;
+                platformsDiv.appendChild(tag);
+            });
         } catch (error) {
             console.warn('Could not load supported platforms:', error);
         }
@@ -135,16 +113,14 @@ class UrlUploader {
 
     setStatus(message, type = 'info') {
         const statusDiv = this.container.querySelector('#url-status');
-        statusDiv.classList.remove('hidden', 'text-red-500', 'text-green-500', 'text-blue-500', 'text-yellow-500');
-
+        statusDiv.classList.remove('hidden');
         const colorMap = {
-            error: 'text-red-500',
-            success: 'text-green-500',
-            info: 'text-blue-500',
-            warning: 'text-yellow-500',
+            error: 'var(--red-text)',
+            success: 'var(--green-text)',
+            info: 'var(--blue-text)',
+            warning: 'var(--amber-text)',
         };
-
-        statusDiv.classList.add(colorMap[type] || 'text-blue-500');
+        statusDiv.style.color = colorMap[type] || colorMap.info;
         statusDiv.textContent = message;
     }
 
@@ -188,13 +164,22 @@ class UrlUploader {
             const data = await resp.json();
 
             if (data.success) {
+                let statusMsg;
+                if (data.total_uploaded > 1) {
+                    statusMsg = `Successfully uploaded ${data.total_uploaded} items!`;
+                } else if (data.result.duplicate) {
+                    statusMsg = 'Already in library (duplicate)';
+                } else {
+                    statusMsg = 'Successfully uploaded!';
+                }
                 this.setStatus(
-                    data.result.duplicate
-                        ? 'Already in library (duplicate)'
-                        : 'Successfully uploaded!',
+                    statusMsg,
                     data.result.duplicate ? 'warning' : 'success'
                 );
                 this.addResult(data.result);
+                if (data.additional_results) {
+                    data.additional_results.forEach(r => this.addResult(r));
+                }
                 input.value = '';
                 this.onUploadComplete(data.result);
             } else {
@@ -254,31 +239,38 @@ class UrlUploader {
 
     addResult(result) {
         const resultsDiv = this.container.querySelector('#url-results');
-
-        const statusColors = {
-            success: 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200',
-            error: 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200',
-            duplicate: 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200',
-        };
-
         const status = result.duplicate ? 'duplicate' : result.status;
-        const colorClass = statusColors[status] || statusColors.error;
+        const badgeClass = status === 'duplicate' ? 'badge--amber' : status === 'success' ? 'badge--green' : 'badge--red';
 
+        // Build result element using DOM methods to avoid innerHTML with user data
         const resultEl = document.createElement('div');
-        resultEl.className = `p-3 rounded-lg ${colorClass} flex justify-between items-center`;
-        resultEl.innerHTML = `
-            <div>
-                <span class="font-medium">${this.escapeHtml(result.filename)}</span>
-                ${result.platform ? `<span class="ml-2 text-xs opacity-75">${result.platform}</span>` : ''}
-            </div>
-            <span class="px-2 py-1 rounded text-xs font-semibold uppercase">
-                ${result.duplicate ? 'Duplicate' : result.status}
-            </span>
-        `;
+        resultEl.className = 'upload-item';
+        resultEl.style.display = 'flex';
+        resultEl.style.alignItems = 'center';
+        resultEl.style.justifyContent = 'space-between';
 
+        const left = document.createElement('div');
+        left.style.minWidth = '0';
+        const nameSpan = document.createElement('span');
+        nameSpan.style.fontWeight = '500';
+        nameSpan.textContent = result.filename;
+        left.appendChild(nameSpan);
+        if (result.platform) {
+            const platSpan = document.createElement('span');
+            platSpan.className = 'text-xs text-secondary';
+            platSpan.style.marginLeft = '8px';
+            platSpan.textContent = result.platform;
+            left.appendChild(platSpan);
+        }
+
+        const badge = document.createElement('span');
+        badge.className = 'badge ' + badgeClass;
+        badge.textContent = result.duplicate ? 'Duplicate' : result.status;
+
+        resultEl.appendChild(left);
+        resultEl.appendChild(badge);
         resultsDiv.prepend(resultEl);
 
-        // Keep only last 10 results
         while (resultsDiv.children.length > 10) {
             resultsDiv.removeChild(resultsDiv.lastChild);
         }

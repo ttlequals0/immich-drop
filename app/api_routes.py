@@ -19,68 +19,19 @@ logger = logging.getLogger("immich_drop.api_routes")
 
 from .url_downloader import (
     download_from_url,
+    download_from_url_multi,
     download_multiple_urls,
     cleanup_download,
     is_supported_url,
     identify_platform,
+    is_direct_image_url,
     SUPPORTED_PATTERNS,
 )
 from .cookie_manager import get_cookie_file_for_platform
+from .utils import detect_file_type
 
 
 router = APIRouter(prefix="/api", tags=["api"])
-
-
-# ============================================================================
-# File Type Detection (Magic Bytes)
-# ============================================================================
-
-def detect_file_type(data: bytes) -> tuple[str, str]:
-    """
-    Detect file type from magic bytes.
-    Returns (extension, mime_type) or (None, None) if unknown.
-    """
-    if len(data) < 12:
-        return None, None
-
-    # JPEG: FF D8 FF
-    if data[:3] == b'\xff\xd8\xff':
-        return '.jpg', 'image/jpeg'
-
-    # PNG: 89 50 4E 47 0D 0A 1A 0A
-    if data[:8] == b'\x89PNG\r\n\x1a\n':
-        return '.png', 'image/png'
-
-    # GIF: GIF87a or GIF89a
-    if data[:6] in (b'GIF87a', b'GIF89a'):
-        return '.gif', 'image/gif'
-
-    # WebP: RIFF....WEBP
-    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
-        return '.webp', 'image/webp'
-
-    # HEIC/HEIF/AVIF: ftyp box with brand
-    if data[4:8] == b'ftyp':
-        brand = data[8:12]
-        if brand in (b'heic', b'heix', b'hevc', b'hevx', b'mif1'):
-            return '.heic', 'image/heic'
-        if brand == b'avif':
-            return '.avif', 'image/avif'
-        # MP4/MOV video formats
-        if brand in (b'isom', b'iso2', b'mp41', b'mp42', b'M4V ', b'M4A '):
-            return '.mp4', 'video/mp4'
-        if brand == b'qt  ':
-            return '.mov', 'video/quicktime'
-
-    # BMP: BM
-    if data[:2] == b'BM':
-        return '.bmp', 'image/bmp'
-
-    # TIFF: II or MM
-    if data[:4] in (b'II*\x00', b'MM\x00*'):
-        return '.tiff', 'image/tiff'
-
-    return None, None
 
 
 # ============================================================================
@@ -117,6 +68,8 @@ class UrlUploadResponse(BaseModel):
     success: bool
     result: Optional[UploadResult] = None
     error: Optional[str] = None
+    total_uploaded: int = 0
+    additional_results: List[UploadResult] = []
 
 
 class BatchUploadResponse(BaseModel):
@@ -277,72 +230,97 @@ def create_api_routes(config):
 
         # Validate URL
         platform = identify_platform(url)
-        if not platform:
+        direct_image = is_direct_image_url(url)
+        if not platform and not direct_image:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported URL. Supported platforms: {', '.join(SUPPORTED_PATTERNS.keys())}"
+                detail=f"Unsupported URL. Supported platforms: {', '.join(SUPPORTED_PATTERNS.keys())}. Direct image URLs are also accepted."
             )
 
-        logger.info("URL upload request: platform=%s url=%s", platform, url)
+        logger.info("URL upload request: platform=%s direct_image=%s url=%s", platform, direct_image, url)
 
         # Look up cookies for this platform (if configured)
-        cookies_file = get_cookie_file_for_platform(platform, config.state_db)
+        cookies_file = get_cookie_file_for_platform(platform, config.state_db) if platform else None
 
-        # Download the file
-        download_result = await download_from_url(url, cookies_file=cookies_file)
+        # Download the file(s) -- may return multiple results for galleries
+        download_results = await download_from_url_multi(url, cookies_file=cookies_file)
 
-        if not download_result.success:
-            logger.error("Download failed for %s: %s", url, download_result.error)
+        # Filter to successful downloads
+        successful_downloads = [r for r in download_results if r.success]
+        if not successful_downloads:
+            first_error = download_results[0].error if download_results else "No media found"
+            logger.error("Download failed for %s: %s", url, first_error)
             return UrlUploadResponse(
                 success=False,
-                error=download_result.error,
+                error=first_error,
             )
+
+        source_label = platform or "direct_image"
+        primary_upload_result = None
+        all_upload_results = []
+        total_uploaded = 0
 
         try:
-            # Read file content
-            with open(download_result.filepath, "rb") as f:
-                file_content = f.read()
+            for download_result in successful_downloads:
+                with open(download_result.filepath, "rb") as f:
+                    file_content = f.read()
 
-            logger.info(
-                "Uploading to Immich: filename=%s content_type=%s size=%d bytes",
-                download_result.filename,
-                download_result.content_type,
-                len(file_content),
-            )
+                logger.info(
+                    "Uploading to Immich: filename=%s content_type=%s size=%d bytes",
+                    download_result.filename,
+                    download_result.content_type,
+                    len(file_content),
+                )
 
-            # Extract timestamp from metadata if available
-            file_created_at = None
-            if download_result.metadata:
-                timestamp = download_result.metadata.get("timestamp")
-                if timestamp:
-                    file_created_at = datetime.fromtimestamp(timestamp).isoformat() + "Z"
+                # Extract timestamp from metadata if available
+                file_created_at = None
+                if download_result.metadata:
+                    timestamp = download_result.metadata.get("timestamp")
+                    if timestamp:
+                        file_created_at = datetime.fromtimestamp(timestamp).isoformat() + "Z"
 
-            # Upload to Immich
-            upload_result = await upload_to_immich(
-                file_content=file_content,
-                filename=download_result.filename,
-                content_type=download_result.content_type,
-                config=config,
-                httpx_client=httpx_client,
-                device_id=f"immich-drop-{platform}",
-                file_created_at=file_created_at,
-            )
-            upload_result.platform = platform
+                upload_result = await upload_to_immich(
+                    file_content=file_content,
+                    filename=download_result.filename,
+                    content_type=download_result.content_type,
+                    config=config,
+                    httpx_client=httpx_client,
+                    device_id=f"immich-drop-{source_label}",
+                    file_created_at=file_created_at,
+                )
+                upload_result.platform = source_label
 
-            # Add to album if specified or configured
-            album_name = url_request.album_name or getattr(config, 'album_name', None)
-            if album_name and upload_result.asset_id and upload_result.status == "success":
-                await add_asset_to_album(upload_result.asset_id, album_name, config, httpx_client)
+                # Add to album if specified or configured
+                album_name = url_request.album_name or getattr(config, 'album_name', None)
+                if album_name and upload_result.asset_id and upload_result.status == "success":
+                    await add_asset_to_album(upload_result.asset_id, album_name, config, httpx_client)
+
+                if upload_result.status == "success":
+                    total_uploaded += 1
+
+                all_upload_results.append(upload_result)
+
+                # Keep first result as the primary response
+                if primary_upload_result is None:
+                    primary_upload_result = upload_result
+
+            if total_uploaded > 1:
+                logger.info(
+                    "Gallery upload complete: %d/%d items uploaded for %s",
+                    total_uploaded, len(successful_downloads), url,
+                )
 
             return UrlUploadResponse(
-                success=upload_result.status == "success",
-                result=upload_result,
-                error=upload_result.error,
+                success=primary_upload_result.status == "success",
+                result=primary_upload_result,
+                error=primary_upload_result.error,
+                total_uploaded=total_uploaded,
+                additional_results=all_upload_results[1:],
             )
 
         finally:
-            # Clean up downloaded file
-            background_tasks.add_task(cleanup_download, download_result)
+            for download_result in download_results:
+                background_tasks.add_task(cleanup_download, download_result)
 
     @router.post("/upload/urls", response_model=BatchUploadResponse)
     async def upload_from_urls(
@@ -372,26 +350,27 @@ def create_api_routes(config):
                     status_code=400,
                     detail=f"Unsupported URL: {url}"
                 )
-            platforms.append(identify_platform(url))
+            platforms.append(identify_platform(url))  # None for direct image URLs
 
         # Look up cookies - if all URLs are from the same platform, use cookies
         cookies_file = None
-        unique_platforms = set(platforms)
+        unique_platforms = set(p for p in platforms if p is not None)
         if len(unique_platforms) == 1:
-            cookies_file = get_cookie_file_for_platform(platforms[0], config.state_db)
+            cookies_file = get_cookie_file_for_platform(list(unique_platforms)[0], config.state_db)
 
         results = []
         download_results = await download_multiple_urls(urls, cookies_file=cookies_file)
 
         for url, download_result in zip(urls, download_results):
             platform = identify_platform(url)
+            source_label = platform or "direct_image"
 
             if not download_result.success:
                 results.append(UploadResult(
                     filename=url,
                     status="error",
                     error=download_result.error,
-                    platform=platform,
+                    platform=source_label,
                 ))
                 continue
 
@@ -411,10 +390,10 @@ def create_api_routes(config):
                     content_type=download_result.content_type,
                     config=config,
                     httpx_client=httpx_client,
-                    device_id=f"immich-drop-{platform}",
+                    device_id=f"immich-drop-{source_label}",
                     file_created_at=file_created_at,
                 )
-                upload_result.platform = platform
+                upload_result.platform = source_label
 
                 # Add to album
                 album_name = batch_request.album_name or getattr(config, 'album_name', None)
