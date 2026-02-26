@@ -8,7 +8,9 @@ import re
 import tempfile
 import asyncio
 import hashlib
+import ipaddress
 import logging
+import socket
 from pathlib import Path
 from typing import Optional, Tuple, List
 from urllib.parse import urlparse
@@ -81,6 +83,48 @@ DIRECT_IMAGE_DOMAINS = {'i.redd.it', 'i.imgur.com', 'pbs.twimg.com', 'preview.re
 MAX_DIRECT_IMAGE_SIZE = 100 * 1024 * 1024  # 100MB
 
 
+def _is_private_ip(addr: str) -> bool:
+    """Check if an IP address is private, loopback, link-local, or otherwise reserved."""
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return True  # Unparseable -> treat as unsafe
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+
+
+def _validate_url_target(url: str) -> Optional[str]:
+    """
+    Validate that a URL does not target private/internal networks.
+    Resolves the hostname to an IP and checks against blocked ranges.
+
+    Returns an error message if the URL is unsafe, or None if it is safe.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return "Invalid URL"
+
+    hostname = parsed.hostname
+    if not hostname:
+        return "URL has no hostname"
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        return f"Blocked URL scheme: {scheme}"
+
+    try:
+        addrinfo = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except socket.gaierror:
+        return f"Cannot resolve hostname: {hostname}"
+
+    for family, _type, _proto, _canonname, sockaddr in addrinfo:
+        ip_str = sockaddr[0]
+        if _is_private_ip(ip_str):
+            return f"Blocked request to private/reserved address: {hostname} -> {ip_str}"
+
+    return None
+
+
 def identify_platform(url: str) -> Optional[str]:
     """Identify which platform a URL belongs to"""
     for platform, patterns in SUPPORTED_PATTERNS.items():
@@ -136,12 +180,38 @@ async def download_direct_image(
     if output_dir is None:
         output_dir = tempfile.mkdtemp(prefix="immich_drop_")
 
+    # SSRF protection: validate the URL target is not a private/internal address
+    err = _validate_url_target(url)
+    if err:
+        logger.warning("Direct image download blocked (SSRF): %s -- %s", url, err)
+        return DownloadResult(success=False, error=f"URL blocked: {err}")
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     }
 
+    def _validate_redirect(response):
+        """Event hook: validate each redirect target against SSRF blocklist."""
+        if response.is_redirect:
+            location = response.headers.get("location", "")
+            if location:
+                redirect_err = _validate_url_target(location)
+                if redirect_err:
+                    logger.warning(
+                        "Redirect blocked (SSRF): %s -> %s -- %s",
+                        response.url, location, redirect_err,
+                    )
+                    raise httpx.TooManyRedirects(
+                        f"Redirect blocked: {redirect_err}",
+                        request=response.request,
+                    )
+
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=60.0,
+            event_hooks={"response": [_validate_redirect]},
+        ) as client:
             # HEAD request to pre-check size (non-fatal: some CDNs reject HEAD)
             try:
                 head_resp = await client.head(url, headers=headers)
@@ -448,18 +518,11 @@ async def extract_instagram_media_urls(
     else:
         logger.debug("Instagram API request: no cookies available (API may return 404)")
 
-    def _best_image_url(candidates: list) -> Optional[str]:
-        """Pick highest resolution image from candidates list."""
+    def _best_media_url(candidates: list) -> Optional[str]:
+        """Pick highest resolution URL from a list of candidates/versions."""
         if not candidates:
             return None
         best = max(candidates, key=lambda c: c.get("width", 0) * c.get("height", 0))
-        return best.get("url")
-
-    def _best_video_url(versions: list) -> Optional[str]:
-        """Pick highest resolution video from versions list."""
-        if not versions:
-            return None
-        best = max(versions, key=lambda v: v.get("width", 0) * v.get("height", 0))
         return best.get("url")
 
     def _extract_media_from_item(item: dict) -> Optional[Tuple[str, str]]:
@@ -467,13 +530,13 @@ async def extract_instagram_media_urls(
         # Check for video first
         video_versions = item.get("video_versions")
         if video_versions:
-            video_url = _best_video_url(video_versions)
+            video_url = _best_media_url(video_versions)
             if video_url:
                 return (video_url, "video")
 
         # Fall back to image
         candidates = item.get("image_versions2", {}).get("candidates", [])
-        image_url = _best_image_url(candidates)
+        image_url = _best_media_url(candidates)
         if image_url:
             return (image_url, "image")
 
@@ -488,7 +551,7 @@ async def extract_instagram_media_urls(
                     "Instagram API failed: status=%d, trying fallback chain",
                     resp.status_code,
                 )
-                return await _instagram_fallback_chain(url, client, cookies_file)
+                return await _instagram_fallback_chain(url, cookies_file)
 
             data = resp.json()
 
@@ -565,7 +628,6 @@ async def _instagram_oembed_fallback(url: str) -> List[Tuple[str, str]]:
 
 async def _instagram_fallback_chain(
     url: str,
-    client: Optional[httpx.AsyncClient] = None,
     cookies_file: Optional[str] = None,
 ) -> List[Tuple[str, str]]:
     """
@@ -576,12 +638,11 @@ async def _instagram_fallback_chain(
     result = await _instagram_oembed_fallback(url)
     if result:
         return result
-    return await _instagram_og_image_fallback(url, client, cookies_file)
+    return await _instagram_og_image_fallback(url, cookies_file)
 
 
 async def _instagram_og_image_fallback(
     url: str,
-    client: Optional[httpx.AsyncClient] = None,
     cookies_file: Optional[str] = None,
 ) -> List[Tuple[str, str]]:
     """
@@ -596,11 +657,7 @@ async def _instagram_og_image_fallback(
         headers["Cookie"] = cookie_header
 
     try:
-        if client is None:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as new_client:
-                resp = await new_client.get(url, headers=headers)
-                page_html = resp.text
-        else:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
             resp = await client.get(url, headers=headers)
             page_html = resp.text
 

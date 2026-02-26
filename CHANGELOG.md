@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.4] - 2026-02-25
+
+### Fixed
+- SSRF vulnerability in direct image URL downloads
+  - `download_direct_image()` accepted URLs targeting private/internal networks (169.254.x.x, 10.x.x.x, 127.0.0.1, etc.)
+  - Added `_validate_url_target()` that resolves hostnames and blocks private, loopback, link-local, and reserved IP ranges
+  - Blocks non-HTTP(S) schemes (file://, ftp://, etc.)
+  - Redirect targets are validated via httpx event hook to prevent redirect-based SSRF bypasses
+
+### Changed
+- Merged duplicate `_best_image_url()` and `_best_video_url()` into single `_best_media_url()` helper
+- Removed unused `client` parameter from `_instagram_fallback_chain()` and `_instagram_og_image_fallback()`
+  - Each fallback function now creates its own `httpx.AsyncClient` (self-contained for failure paths)
+
 ## [1.3.3] - 2026-02-25
 
 ### Fixed
