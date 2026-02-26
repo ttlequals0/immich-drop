@@ -12,6 +12,16 @@ All notable changes to this project will be documented in this file.
   - Redirect targets are validated via httpx event hook to prevent redirect-based SSRF bypasses
 
 ### Changed
+- Complete frontend UI redesign -- consistent styling across all pages, mobile-friendly
+  - Replaced Tailwind CDN with custom `styles.css` using CSS custom properties for theming
+  - DM Sans font for body text, JetBrains Mono for code/monospace
+  - Unified component library: `.btn`, `.card`, `.input`, `.badge`, `.banner`, `.data-table`
+  - Dark mode via CSS variables (no Tailwind dark: prefix classes)
+  - Responsive tables: 7-column manage links table converts to stacked card layout on mobile
+  - Admin menu page header no longer overflows on small screens
+  - Login page centered with proper form card
+  - Upload progress items use DOM construction (no innerHTML with filenames)
+  - Extracted menu.js from inline script in menu.html
 - Merged duplicate `_best_image_url()` and `_best_video_url()` into single `_best_media_url()` helper
 - Removed unused `client` parameter from `_instagram_fallback_chain()` and `_instagram_og_image_fallback()`
   - Each fallback function now creates its own `httpx.AsyncClient` (self-contained for failure paths)

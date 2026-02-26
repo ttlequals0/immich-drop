@@ -3,62 +3,62 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Login – Immich Drop</title>
+  <title>Login - Immich Drop</title>
   <link rel="icon" type="image/png" href="/static/favicon.png" />
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = { darkMode: 'class' };
-  </script>
+  <link rel="stylesheet" href="/static/styles.css" />
 </head>
-<body class="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
-  <div class="mx-auto max-w-2xl p-6 space-y-6">
-    <div id="topBanner" class="hidden rounded-2xl border border-green-200 bg-green-50 p-3 text-green-700 text-center dark:bg-green-900 dark:border-green-700 dark:text-green-300"></div>
-    <header class="flex items-center justify-between">
-      <h1 class="text-2xl font-semibold">Login to Immich</h1>
-      <div class="flex items-center gap-2">
-        <a id="linkPublicUploader" href="/" class="hidden rounded-xl border px-3 py-1 text-sm dark:border-gray-600">Public uploader</a>
-        <button id="btnTheme" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600" title="Toggle dark mode">
-          <svg id="iconLight" class="w-4 h-4 hidden" fill="currentColor" viewBox="0 0 20 20">
+<body>
+  <div class="page-wrap" style="max-width:440px;">
+    <div id="topBanner" class="banner hidden"></div>
+
+    <header class="site-header">
+      <h1>Login</h1>
+      <div class="header-actions">
+        <a id="linkPublicUploader" href="/" class="btn hidden">Public uploader</a>
+        <button id="btnTheme" class="btn btn--icon" title="Toggle dark mode" aria-label="Toggle theme">
+          <svg id="iconLight" class="hidden" fill="currentColor" viewBox="0 0 20 20" width="16" height="16">
             <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414z" clip-rule="evenodd"/>
           </svg>
-          <svg id="iconDark" class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+          <svg id="iconDark" fill="currentColor" viewBox="0 0 20 20" width="16" height="16">
             <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
           </svg>
         </button>
-        <button id="btnPing" class="rounded-xl border px-3 py-1 text-sm dark:border-gray-600">Test connection</button>
-        <span id="pingStatus" class="ml-2 text-sm text-gray-500 dark:text-gray-400"></span>
+        <button id="btnPing" class="btn">Test connection</button>
+        <span id="pingStatus" class="text-sm text-secondary"></span>
       </div>
     </header>
-    <div class="max-w-md">
-    <h2 class="text-lg font-medium mb-2">Enter your credentials</h2>
-    <div id="msg" class="hidden mb-3 rounded-lg border p-2 text-sm"></div>
-    <form id="loginForm" class="space-y-3">
-      <div>
-        <label class="block text-sm mb-1">Email</label>
-        <input id="email" type="email" required class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-800 dark:border-gray-700" />
-      </div>
-      <div>
-        <label class="block text-sm mb-1">Password</label>
-        <input id="password" type="password" required class="w-full rounded-lg border px-3 py-2 bg-white dark:bg-gray-800 dark:border-gray-700" />
-      </div>
-      <div class="flex items-center justify-between">
-        <button class="rounded-xl bg-black text-white px-4 py-2 dark:bg-white dark:text-black" type="submit">Login</button>
-        <a href="/" class="rounded-xl border px-3 py-2 text-sm dark:border-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 transition-colors">Back to uploader</a>
-      </div>
-    </form>
+
+    <div class="card">
+      <h2 style="font-size:1rem;font-weight:600;margin-bottom:16px;">Sign in to your Immich account</h2>
+      <div id="msg" class="banner hidden mb-3"></div>
+      <form id="loginForm" autocomplete="on">
+        <div class="form-group">
+          <label class="form-label" for="email">Email</label>
+          <input id="email" type="email" required class="input" autocomplete="email" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <input id="password" type="password" required class="input" autocomplete="current-password" />
+        </div>
+        <div class="flex items-center justify-between gap-2 mt-4">
+          <button class="btn btn--primary" type="submit">Login</button>
+          <a href="/" class="btn">Back to uploader</a>
+        </div>
+      </form>
     </div>
-    <footer class="pt-8 pb-10 text-center text-xs text-gray-500 dark:text-gray-400 space-y-1">
-      <div><a id="version-link" href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener" class="underline hover:text-gray-700 dark:hover:text-gray-300">immich-drop</a></div>
+
+    <footer class="site-footer">
+      <a id="version-link" href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener">immich-drop</a>
     </footer>
   </div>
+
   <script src="/static/header.js"></script>
   <script>
     const form = document.getElementById('loginForm');
     const msg = document.getElementById('msg');
     function show(kind, text){
       msg.textContent = text;
-      msg.className = 'mb-3 rounded-lg border p-2 text-sm ' + (kind==='ok' ? 'border-green-200 bg-green-50 text-green-700 dark:bg-green-900 dark:border-green-700 dark:text-green-300' : 'border-red-200 bg-red-50 text-red-700 dark:bg-red-900 dark:border-red-700 dark:text-red-300');
-      msg.classList.remove('hidden');
+      msg.className = 'banner mb-3 ' + (kind==='ok' ? 'banner--ok' : 'banner--err');
     }
     form.onsubmit = async (e)=>{
       e.preventDefault();
@@ -68,12 +68,10 @@
         const r = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify({email, password}) });
         const j = await r.json().catch(()=>({}));
         if(!r.ok){ show('err', j.error || 'Login failed'); return; }
-        show('ok', 'Login successful. Redirecting…');
+        show('ok', 'Login successful. Redirecting...');
         setTimeout(()=>{ location.href = '/menu'; }, 500);
       }catch(err){ show('err', String(err)); }
     };
-    // header.js wires theme + ping and provides consistent banner behavior
-    // Fetch version dynamically
     fetch('/api/config')
       .then(r => r.json())
       .then(data => {

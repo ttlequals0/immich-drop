@@ -2,6 +2,10 @@
 *.env
 agent.md
 docker-compose.yml
+.claude
+.playwright/
+.playwright-mcp/
+.benchmark/
 # Python cache and build artifacts
 __pycache__/
 app/__pycache__/*
@@ -16,6 +20,7 @@ build/
 dist/
 
 # Virtual envs and IDE
+venv/
 .venv/
 .idea/
 .vscode/

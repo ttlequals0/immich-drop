@@ -33,12 +33,7 @@
   function showBanner(text, kind='ok'){
     if(!banner) return;
     banner.textContent = text;
-    banner.className = 'rounded-2xl p-3 text-center transition-colors ' + (
-      kind==='ok' ? 'border border-green-200 bg-green-50 text-green-700 dark:bg-green-900 dark:border-green-700 dark:text-green-300'
-      : kind==='warn' ? 'border border-amber-200 bg-amber-50 text-amber-700 dark:bg-amber-900 dark:border-amber-700 dark:text-amber-300'
-      : 'border border-red-200 bg-red-50 text-red-700 dark:bg-red-900 dark:border-red-700 dark:text-red-300'
-    );
-    banner.classList.remove('hidden');
+    banner.className = 'banner ' + (kind==='ok' ? 'banner--ok' : kind==='warn' ? 'banner--warn' : 'banner--err');
     setTimeout(() => banner.classList.add('hidden'), 3000);
   }
 
