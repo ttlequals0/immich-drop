@@ -22,6 +22,16 @@ All notable changes to this project will be documented in this file.
   - All carousel/gallery items rendered individually in the results list
   - Backward compatible: new fields have defaults (`total_uploaded=0`, `additional_results=[]`)
 
+### Changed
+- Adopted Immich brand colors throughout the UI
+  - Primary accent: `#4250af` (light mode) / `#accbfa` (dark mode) matching Immich's own `--immich-primary`
+  - Applied to buttons, input focus rings, dropzone drag state, platform tags, and footer links
+  - Added `--accent-hover`, `--accent-subtle`, and `--shadow-focus` design tokens
+- Fixed platform tags ("Supported:" line) displaying as unstyled run-together text
+  - CSS selector `.url-section .platform-tags` never matched (parent class is `url-uploader`)
+  - Changed to `.platform-tags` -- flex layout with gap now applies, tags display as spaced badges
+- Platform tags now use accent-subtle background with accent-colored text instead of plain gray
+
 ## [1.3.4] - 2026-02-25
 
 ### Fixed

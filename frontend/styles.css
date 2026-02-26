@@ -16,15 +16,18 @@
   --bg-input: #ffffff;
   --bg-hover: #f0f0f0;
   --border: #e0e0e0;
-  --border-focus: #888;
+  --border-focus: #4250af;
   --text: #1a1a1a;
   --text-secondary: #6b6b6b;
   --text-tertiary: #999;
-  --accent: #1a1a1a;
+  --accent: #4250af;
+  --accent-hover: #3644a0;
+  --accent-subtle: #eef1fb;
   --accent-text: #ffffff;
   --radius: 10px;
   --radius-lg: 14px;
   --shadow-card: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-focus: 0 0 0 3px rgba(66, 80, 175, 0.15);
 
   /* Status colors */
   --green-bg: #ecfdf5;
@@ -47,13 +50,16 @@ html.dark {
   --bg-input: #222222;
   --bg-hover: #2a2a2a;
   --border: #333333;
-  --border-focus: #666;
+  --border-focus: #accbfa;
   --text: #e8e8e8;
   --text-secondary: #999;
   --text-tertiary: #666;
-  --accent: #e8e8e8;
-  --accent-text: #111111;
+  --accent: #accbfa;
+  --accent-hover: #8db8f8;
+  --accent-subtle: #1a2040;
+  --accent-text: #0a0a0a;
   --shadow-card: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-focus: 0 0 0 3px rgba(172, 203, 250, 0.2);
 
   --green-bg: #052e16;
   --green-border: #166534;
@@ -148,7 +154,7 @@ a { color: inherit; }
   color: var(--accent-text);
   border-color: var(--accent);
 }
-.btn--primary:hover { opacity: 0.85; background: var(--accent); }
+.btn--primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 
 .btn--danger {
   border-color: var(--red-border);
@@ -232,6 +238,7 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
 .input:focus, select.input:focus, textarea.input:focus {
   outline: none;
   border-color: var(--border-focus);
+  box-shadow: var(--shadow-focus);
 }
 .input::placeholder { color: var(--text-tertiary); }
 .input[readonly] { background: var(--bg); }
@@ -259,7 +266,7 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
 }
 .dropzone.drag-over {
   border-color: var(--accent);
-  background: var(--bg-hover);
+  background: var(--accent-subtle);
 }
 .dropzone-icon {
   width: 36px;
@@ -441,10 +448,11 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
 }
 
 /* --- URL uploader --- */
-.url-section .platform-tags {
+.platform-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
   margin-top: 10px;
 }
 .platform-tag {
@@ -452,9 +460,9 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
   font-weight: 500;
   padding: 3px 8px;
   border-radius: 6px;
-  background: var(--bg);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border: 1px solid transparent;
 }
 
 /* --- QR / Modal overlays --- */
@@ -515,8 +523,9 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
 .site-footer a {
   text-decoration: underline;
   text-underline-offset: 2px;
+  color: var(--accent);
 }
-.site-footer a:hover { color: var(--text-secondary); }
+.site-footer a:hover { opacity: 0.8; }
 
 /* --- Utility --- */
 .hidden { display: none !important; }
