@@ -68,6 +68,8 @@ class UrlUploadResponse(BaseModel):
     success: bool
     result: Optional[UploadResult] = None
     error: Optional[str] = None
+    total_uploaded: int = 0
+    additional_results: List[UploadResult] = []
 
 
 class BatchUploadResponse(BaseModel):
@@ -255,6 +257,7 @@ def create_api_routes(config):
 
         source_label = platform or "direct_image"
         primary_upload_result = None
+        all_upload_results = []
         total_uploaded = 0
 
         try:
@@ -295,6 +298,8 @@ def create_api_routes(config):
                 if upload_result.status == "success":
                     total_uploaded += 1
 
+                all_upload_results.append(upload_result)
+
                 # Keep first result as the primary response
                 if primary_upload_result is None:
                     primary_upload_result = upload_result
@@ -309,6 +314,8 @@ def create_api_routes(config):
                 success=primary_upload_result.status == "success",
                 result=primary_upload_result,
                 error=primary_upload_result.error,
+                total_uploaded=total_uploaded,
+                additional_results=all_upload_results[1:],
             )
 
         finally:

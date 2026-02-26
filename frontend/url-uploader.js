@@ -164,13 +164,22 @@ class UrlUploader {
             const data = await resp.json();
 
             if (data.success) {
+                let statusMsg;
+                if (data.total_uploaded > 1) {
+                    statusMsg = `Successfully uploaded ${data.total_uploaded} items!`;
+                } else if (data.result.duplicate) {
+                    statusMsg = 'Already in library (duplicate)';
+                } else {
+                    statusMsg = 'Successfully uploaded!';
+                }
                 this.setStatus(
-                    data.result.duplicate
-                        ? 'Already in library (duplicate)'
-                        : 'Successfully uploaded!',
+                    statusMsg,
                     data.result.duplicate ? 'warning' : 'success'
                 );
                 this.addResult(data.result);
+                if (data.additional_results) {
+                    data.additional_results.forEach(r => this.addResult(r));
+                }
                 input.value = '';
                 this.onUploadComplete(data.result);
             } else {

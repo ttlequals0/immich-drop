@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.5] - 2026-02-25
+
+### Fixed
+- Critical: Direct image downloads (i.redd.it, imgur, etc.) crashing with TypeError
+  - The `_validate_redirect` SSRF event hook was a sync function but httpx AsyncClient requires async hooks
+  - Changed to `async def` -- function body needs no await calls, which is valid for async functions
+- Instagram story URLs matching the platform pattern but failing extraction
+  - Story URLs (`/stories/username/media_id/`) were routed to `extract_instagram_media_urls()` which expects a shortcode
+  - Added `_is_instagram_story_url()` helper to detect story URLs before routing
+  - Added `extract_instagram_story_urls()` using Instagram private API (web_profile_info + reels_media)
+  - Resolves username to user_id, fetches active stories, matches specific story by pk/id
+  - Requires cookies (stories are only visible to authenticated users)
+
+### Added
+- Multi-item response visibility for single URL endpoint (`POST /api/upload/url`)
+  - `UrlUploadResponse` now includes `total_uploaded` count and `additional_results` list
+  - Frontend shows count when multiple items uploaded (e.g., "Successfully uploaded 5 items!")
+  - All carousel/gallery items rendered individually in the results list
+  - Backward compatible: new fields have defaults (`total_uploaded=0`, `additional_results=[]`)
+
 ## [1.3.4] - 2026-02-25
 
 ### Fixed

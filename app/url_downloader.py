@@ -83,6 +83,15 @@ DIRECT_IMAGE_DOMAINS = {'i.redd.it', 'i.imgur.com', 'pbs.twimg.com', 'preview.re
 MAX_DIRECT_IMAGE_SIZE = 100 * 1024 * 1024  # 100MB
 
 
+def _is_instagram_story_url(url: str) -> bool:
+    """Check if a URL is an Instagram story link (requires different extraction flow)."""
+    return bool(re.match(
+        r'(?:https?://)?(?:www\.)?instagram\.com/stories/[\w.-]+/\d+',
+        url,
+        re.IGNORECASE,
+    ))
+
+
 def _is_private_ip(addr: str) -> bool:
     """Check if an IP address is private, loopback, link-local, or otherwise reserved."""
     try:
@@ -190,7 +199,7 @@ async def download_direct_image(
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     }
 
-    def _validate_redirect(response):
+    async def _validate_redirect(response):
         """Event hook: validate each redirect target against SSRF blocklist."""
         if response.is_redirect:
             location = response.headers.get("location", "")
@@ -686,6 +695,167 @@ async def _instagram_og_image_fallback(
         return []
 
 
+async def extract_instagram_story_urls(
+    url: str,
+    cookies_file: Optional[str] = None,
+) -> List[Tuple[str, str]]:
+    """
+    Extract media URLs from an Instagram story using the private API.
+
+    Two-step flow:
+    1. Resolve username -> user_id via web_profile_info endpoint
+    2. Fetch stories via reels_media endpoint, match by story media ID from URL
+
+    Requires cookies (Instagram stories are only visible to authenticated users).
+
+    Returns list of (url, media_type) tuples, or empty list on failure.
+    """
+    # Extract username and story media ID from URL
+    match = re.match(
+        r'(?:https?://)?(?:www\.)?instagram\.com/stories/([\w.-]+)/(\d+)',
+        url,
+        re.IGNORECASE,
+    )
+    if not match:
+        logger.warning("Instagram story: could not parse username/id from %s", url)
+        return []
+
+    username = match.group(1)
+    story_media_id = match.group(2)
+
+    cookie_header = parse_netscape_cookies(cookies_file)
+    if not cookie_header:
+        logger.warning(
+            "Instagram story: cookies required but not available for %s", url
+        )
+        return []
+
+    headers = {
+        "User-Agent": BROWSER_USER_AGENT,
+        "X-IG-App-ID": "936619743392459",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.instagram.com/",
+        "Cookie": cookie_header,
+    }
+
+    def _best_media_url(candidates: list) -> Optional[str]:
+        """Pick highest resolution URL from a list of candidates/versions."""
+        if not candidates:
+            return None
+        best = max(candidates, key=lambda c: c.get("width", 0) * c.get("height", 0))
+        return best.get("url")
+
+    def _extract_media_from_item(item: dict) -> Optional[Tuple[str, str]]:
+        """Extract best media URL from a single Instagram media item."""
+        video_versions = item.get("video_versions")
+        if video_versions:
+            video_url = _best_media_url(video_versions)
+            if video_url:
+                return (video_url, "video")
+        candidates = item.get("image_versions2", {}).get("candidates", [])
+        image_url = _best_media_url(candidates)
+        if image_url:
+            return (image_url, "image")
+        return None
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            # Step 1: Resolve username -> user_id
+            profile_url = (
+                f"https://i.instagram.com/api/v1/users/web_profile_info/"
+                f"?username={username}"
+            )
+            profile_resp = await client.get(profile_url, headers=headers)
+            if profile_resp.status_code != 200:
+                logger.warning(
+                    "Instagram story: profile lookup failed (status=%d) for @%s",
+                    profile_resp.status_code, username,
+                )
+                return []
+
+            profile_data = profile_resp.json()
+            user_id = (
+                profile_data.get("data", {})
+                .get("user", {})
+                .get("id")
+            )
+            if not user_id:
+                logger.warning(
+                    "Instagram story: could not resolve user_id for @%s", username
+                )
+                return []
+
+            logger.debug("Instagram story: @%s -> user_id=%s", username, user_id)
+
+            # Step 2: Fetch stories for this user
+            reels_url = (
+                f"https://i.instagram.com/api/v1/feed/reels_media/"
+                f"?reel_ids={user_id}"
+            )
+            reels_resp = await client.get(reels_url, headers=headers)
+            if reels_resp.status_code != 200:
+                logger.warning(
+                    "Instagram story: reels_media failed (status=%d) for user_id=%s",
+                    reels_resp.status_code, user_id,
+                )
+                return []
+
+            reels_data = reels_resp.json()
+
+        # Navigate to the story items
+        reels = reels_data.get("reels", {})
+        user_reel = reels.get(str(user_id), {})
+        items = user_reel.get("items", [])
+
+        if not items:
+            logger.warning(
+                "Instagram story: no story items found for @%s (user_id=%s)",
+                username, user_id,
+            )
+            return []
+
+        # Find the specific story by matching pk against the media ID from the URL
+        for item in items:
+            item_pk = str(item.get("pk", ""))
+            if item_pk == story_media_id:
+                result = _extract_media_from_item(item)
+                if result:
+                    logger.info(
+                        "Instagram story: extracted %s from @%s story (pk=%s)",
+                        result[1], username, story_media_id,
+                    )
+                    return [result]
+                break
+
+        # If exact match not found, try id field as well
+        for item in items:
+            item_id = str(item.get("id", "")).split("_")[0]
+            if item_id == story_media_id:
+                result = _extract_media_from_item(item)
+                if result:
+                    logger.info(
+                        "Instagram story: extracted %s from @%s story (id=%s)",
+                        result[1], username, story_media_id,
+                    )
+                    return [result]
+                break
+
+        logger.warning(
+            "Instagram story: media ID %s not found in @%s active stories "
+            "(found %d items -- story may have expired)",
+            story_media_id, username, len(items),
+        )
+        return []
+
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.warning("Instagram story API parse error for %s: %s", url, e)
+        return []
+    except Exception as e:
+        logger.error("Instagram story extraction failed for %s: %s", url, e)
+        return []
+
+
 async def download_from_url(
     url: str,
     output_dir: Optional[str] = None,
@@ -945,7 +1115,10 @@ async def download_platform_media(
         return results if results else None
 
     elif platform == "instagram":
-        media_items = await extract_instagram_media_urls(url, cookies_file)
+        if _is_instagram_story_url(url):
+            media_items = await extract_instagram_story_urls(url, cookies_file)
+        else:
+            media_items = await extract_instagram_media_urls(url, cookies_file)
         if not media_items:
             return None
 
