@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-04-05
+
+### Added
+- gallery-dl integration for image extraction from supported sites
+  - Runs as a subprocess alongside yt-dlp to keep license isolation (gallery-dl is GPLv2)
+  - Supports cookie file passthrough for authenticated downloads
+  - New platforms: Flickr, Tumblr, Imgur (full album support), ArtStation, DeviantArt, Pixiv, Danbooru, Bluesky, Pinterest
+- Platform routing: image-heavy sites use gallery-dl, video-heavy sites (YouTube, TikTok, Facebook) use yt-dlp
+- gallery-dl writes JSON metadata sidecars per file; metadata (category, author, title, date) is extracted and included in upload results
+
+### Removed
+- Custom Reddit image extraction (~120 lines) -- replaced by gallery-dl's reddit extractor
+- Custom Instagram media extraction (~370 lines) -- replaced by gallery-dl's instagram extractor
+  - Removed: REST API extraction, oEmbed fallback, og:image HTML scraping, private API story extraction
+- `download_platform_media()` dispatcher -- replaced by `extract_via_gallery_dl()`
+- `parse_netscape_cookies()` helper -- no longer needed; gallery-dl and yt-dlp both accept cookie files directly
+
+### Changed
+- Download pipeline order: direct image -> gallery-dl -> yt-dlp (previously: direct image -> custom extractors -> yt-dlp)
+- Batch downloads (`/api/upload/urls`) now route through gallery-dl, supporting multi-item gallery extraction for all platforms
+- Consolidated duplicate `content_type_map` dicts into shared `CONTENT_TYPE_MAP` module-level constant
+
 ## [1.3.5] - 2026-02-25
 
 ### Fixed

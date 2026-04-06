@@ -9,7 +9,7 @@ Upload photos, videos, and social media links directly to your Immich server fro
 This shortcut handles:
 - Photos (JPEG, HEIC, PNG, etc.)
 - Videos (MOV, MP4)
-- Social media URLs (TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X)
+- Social media URLs (TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X, Flickr, Imgur, and more)
 
 ## Setup
 
@@ -30,7 +30,7 @@ This shortcut handles:
 
 ### For Social Media URLs
 
-1. Open TikTok, Instagram, Facebook, Reddit, YouTube, or Twitter
+1. Open TikTok, Instagram, Facebook, Reddit, YouTube, Twitter, or other supported platforms
 2. Find a video/post you want to save
 3. Tap Share -> "Save to Immich"
 4. The video downloads and uploads automatically
@@ -86,7 +86,7 @@ This also improves reliability for any app that shares rich links instead of pla
 
 ### "Unsupported URL" error
 - Make sure you're sharing the video/post URL, not just text
-- Supported platforms: TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X
+- See the [full list of supported platforms](../README.md#url-downloads) in the README
 
 ### Videos not downloading from Instagram
 - Instagram stories/posts may require authentication
