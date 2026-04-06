@@ -361,13 +361,15 @@ def create_api_routes(config):
         results = []
         download_results = await download_multiple_urls(urls, cookies_file=cookies_file)
 
-        for url, download_result in zip(urls, download_results):
-            platform = identify_platform(url)
-            source_label = platform or "direct_image"
+        for download_result in download_results:
+            # Derive platform from the result's metadata or original URL
+            post_url = (download_result.metadata or {}).get("post_url", "")
+            platform = identify_platform(post_url) if post_url else None
+            source_label = platform or (download_result.metadata or {}).get("source", "direct_image")
 
             if not download_result.success:
                 results.append(UploadResult(
-                    filename=url,
+                    filename=download_result.filename or post_url or "unknown",
                     status="error",
                     error=download_result.error,
                     platform=source_label,

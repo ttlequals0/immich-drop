@@ -17,7 +17,7 @@ Admin users log in to create public invite links; invite links are always public
 - **Chunked Uploads (optional):** large-file support with configurable chunk size
 - **Privacy-first:** never lists server media; session-local uploads only
 - **Mobile + Dark Mode:** responsive UI, safe-area padding, persistent theme
-- **URL Downloads:** download from TikTok, Instagram, Facebook, Reddit, YouTube, Twitter and upload to Immich
+- **URL Downloads:** download from TikTok, Instagram, Facebook, Reddit, YouTube, Twitter, Flickr, Imgur, Tumblr, Pinterest, and many more -- upload to Immich
 - **Platform Cookies:** add authentication cookies for platforms requiring login (Instagram, TikTok, etc.)
 - **iOS Shortcuts:** share photos/videos or social media URLs directly from your iPhone ([setup guide](docs/ios-shortcuts.md))
 
@@ -123,11 +123,21 @@ Upload content from social media platforms directly via the web UI or API:
 
 **Supported Platforms:**
 - TikTok
-- Instagram (Reels, Posts)
+- Instagram (Reels, Posts, Stories)
 - Facebook (Reels, Videos)
-- Reddit (videos, images)
+- Reddit (videos, images, galleries)
 - YouTube (Shorts, videos)
 - Twitter/X
+- Flickr
+- Imgur (images, albums)
+- Tumblr
+- Pinterest
+- ArtStation
+- DeviantArt
+- Pixiv
+- Danbooru
+- Bluesky
+- And many more via [gallery-dl](https://github.com/mikf/gallery-dl)
 
 **API Endpoints:**
 | Endpoint | Method | Purpose |
@@ -177,32 +187,23 @@ Cookies are stored server-side in `/data/cookies/` and automatically used when d
 - Auto-refresh after creating a link; new row is highlighted and scrolled into view
 - Expiry save fix: stores end-of-day to avoid off-by-one date issues
 
-Roadmap highlight
-- We’d like to add a per-user UI and remove reliance on a fixed API key by allowing users to authenticate and provide their own Immich API tokens. This is not in scope for the initial versions but aligns with future direction.
-- The frontend automatically switches to chunked mode only for files larger than the configured chunk size.
+Roadmap: per-user auth with individual Immich API tokens (not in scope yet).
 
-### 📱 Device‑Flexible HMI (New)
-- Fully responsive UI with improved spacing and wrapping for small and large screens.
-- Mobile‑safe file picker and a sticky bottom “Choose files” bar on phones.
-- Safe‑area padding for devices with notches; refined dark/light theme behavior.
-- Desktop keeps the dropzone clickable; touch devices avoid accidental double‑open.
+### Responsive UI
+- Responsive layout for small and large screens
+- Mobile-safe file picker with a sticky “Choose files” bar
+- Safe-area padding for notched devices; dark/light theme toggle
+- Desktop keeps the dropzone clickable; touch devices avoid accidental double-open
 
-### ♻️ Reliability & Quality of Life (New)
-- Retry button to re‑attempt any failed upload without re‑selecting the file.
-- Progress and status updates are more resilient to late/reordered WebSocket events.
-- Invites can be created without an album, keeping uploads unassigned when preferred.
+### Reliability
+- Retry button for failed uploads without re-selecting the file
+- Progress updates handle late/reordered WebSocket events
+- Invites can be created without an album
 
-### Last 8 Days – Highlights
-- Added chunked uploads with configurable chunk size.
-- Added optional passwords for invite links with in‑UI unlock prompt.
-- Responsive HMI overhaul: mobile‑safe picker, sticky mobile action bar, safe‑area support.
-- Retry for failed uploads and improved progress handling.
-- Support for invites with no album association.
-
-### 🌙 Dark Mode
+### Dark mode
 - Automatic or manual toggle; persisted preference
 
-### 📁 Album Integration
+### Album integration
 - Auto-create + assign album if configured; optional invites without album
 
 ---
@@ -217,13 +218,14 @@ Roadmap highlight
 
 ## Architecture
 
-- **Frontend:** static HTML/JS (Tailwind). Drag & drop or "Choose files", queue UI with progress and status chips.  
+- **Frontend:** static HTML/JS. Drag & drop or "Choose files", queue UI with progress and status chips.  
 - **Backend:** FastAPI + Uvicorn.  
   - Proxies uploads to Immich `/assets`  
-  - Computes SHA‑1 and checks a local SQLite cache (`state.db`)  
-  - Optional Immich de‑dupe via `/assets/bulk-upload-check`  
-  - WebSocket `/ws` pushes per‑item progress to the current browser session only  
-- **Persistence:** local SQLite (`state.db`) prevents re‑uploads across sessions/runs.
+  - Computes SHA-1 and checks a local SQLite cache (`state.db`)  
+  - Optional Immich de-dupe via `/assets/bulk-upload-check`  
+  - URL downloads use gallery-dl (images/galleries) with yt-dlp fallback (videos)  
+  - WebSocket `/ws` pushes per-item progress to the current browser session only  
+- **Persistence:** local SQLite (`state.db`) prevents re-uploads across sessions/runs.
 
 ---
 
@@ -234,7 +236,7 @@ immich_drop/
 ├─ app/                     # FastAPI application (Python package)
 │  ├─ app.py                # ASGI app (uvicorn entry: app.app:app)
 │  ├─ api_routes.py         # URL download and iOS Shortcut endpoints
-│  ├─ url_downloader.py     # yt-dlp wrapper for social media downloads
+│  ├─ url_downloader.py     # gallery-dl + yt-dlp media extraction pipeline
 │  ├─ cookie_manager.py     # Platform cookie storage and Netscape format conversion
 │  └─ config.py             # Settings loader (reads .env/env)
 ├─ frontend/                # Static UI (served at /static)
@@ -264,6 +266,7 @@ immich_drop/
 
 - **Python** 3.11
 - An **Immich** server + **API key**
+- **gallery-dl** and **yt-dlp** (installed automatically in Docker image)
 
 ---
 # Local dev quickstart
@@ -292,7 +295,7 @@ IMMICH_BASE_URL=http://REPLACE_ME:2283/api
 IMMICH_API_KEY=ADD-YOUR-API-KEY   # needs: asset.upload; for albums also: album.create, album.read, albumAsset.create
 MAX_CONCURRENT=3
 
-# Public uploader page (optional) — disabled by default
+# Public uploader page (optional) -- disabled by default
 PUBLIC_UPLOAD_PAGE_ENABLED=TRUE
 
 # Album (optional): auto-add uploads from public uploader to this album (creates if needed)
