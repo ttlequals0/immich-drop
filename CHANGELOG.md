@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] - 2026-04-07
+
+### Added
+- Async URL uploads -- `POST /api/upload/url` now returns immediately with a job ID
+  - New polling endpoint: `GET /api/upload/url/status/{job_id}`
+  - Job statuses: pending, downloading, uploading, completed, failed
+  - Jobs stored in memory, auto-expire after 10 minutes
+  - Fixes iOS Shortcut timeout errors during slow Instagram downloads with anti-detection delays
+- In-memory job manager (`app/job_manager.py`) for tracking download/upload progress
+
+### Changed
+- Frontend URL uploader polls for job completion instead of waiting for synchronous response
+  - Shows live status updates: Downloading -> Uploading to Immich -> Success/Error
+  - Handles gallery/carousel uploads with multiple results
+
+### Fixed
+- Reddit `reddit.com/media?url=` redirect URLs now correctly extract and download the embedded image URL
+  - Previously failed with "Unsupported URL" because neither gallery-dl nor yt-dlp handles the redirect wrapper
+
 ## [1.5.0] - 2026-04-07
 
 ### Added
