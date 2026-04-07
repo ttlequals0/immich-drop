@@ -8,6 +8,8 @@ from typing import Optional, Any
 logger = logging.getLogger("immich_drop.job_manager")
 
 JOB_TTL_SECONDS = 600  # 10 minutes
+_CLEANUP_INTERVAL = 60  # seconds between cleanup sweeps
+_last_cleanup: float = 0.0
 
 
 @dataclass
@@ -54,7 +56,11 @@ def update_job(
 
 
 def cleanup_expired() -> int:
+    global _last_cleanup
     now = time.time()
+    if now - _last_cleanup < _CLEANUP_INTERVAL:
+        return 0
+    _last_cleanup = now
     expired = [jid for jid, j in _jobs.items() if now - j.created_at > JOB_TTL_SECONDS]
     for jid in expired:
         del _jobs[jid]

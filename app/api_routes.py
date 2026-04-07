@@ -15,7 +15,6 @@ import base64
 import logging
 import mimetypes
 import asyncio
-import time
 
 logger = logging.getLogger("immich_drop.api_routes")
 

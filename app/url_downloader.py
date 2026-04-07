@@ -16,7 +16,7 @@ import signal
 import socket
 from pathlib import Path
 from typing import Optional, List, TYPE_CHECKING
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs, unquote
 from dataclasses import dataclass
 import json
 
@@ -743,7 +743,6 @@ async def download_from_url_multi(
     try:
         parsed = urlparse(url)
         if parsed.hostname and "reddit.com" in parsed.hostname and parsed.path == "/media":
-            from urllib.parse import parse_qs, unquote
             params = parse_qs(parsed.query)
             if "url" in params:
                 embedded_url = unquote(params["url"][0])
