@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-04-07
+
+### Added
+- Anti-detection hardening for Instagram downloads
+  - gallery-dl sleep flags (`--sleep-request`, `--sleep`) with randomized delays for Instagram
+  - Configurable via `GALLERY_DL_SLEEP_REQUEST` (default "10-25") and `GALLERY_DL_SLEEP` (default "5-15")
+  - Batch download concurrency limiter via `DOWNLOAD_CONCURRENCY` env var (default 1 = serial)
+  - `INSTAGRAM_YTDLP_FALLBACK` env var to control yt-dlp fallback for Instagram (default false)
+  - `GALLERY_DL_TIMEOUT` env var (default 300s, up from hardcoded 120s) to accommodate sleep delays
+- Cookie file caching -- no longer rewrites Netscape file on every download call
+  - In-memory cache keyed on platform + DB `updated_at` timestamp
+  - Cache invalidated on cookie create/update/delete
+- Cookie staleness detection (hardcoded 7-day threshold)
+  - Logs warning when platform cookies may be expired
+  - `is_stale` flag added to `GET /api/cookies` response for each platform
+
+### Changed
+- yt-dlp fallback blocked for Instagram by default -- two scrapers hitting the same session doubles detection risk
+  - gallery-dl failure on Instagram now returns an error suggesting cookie refresh
+  - Set `INSTAGRAM_YTDLP_FALLBACK=true` to restore previous behavior
+- Batch URL downloads (`/api/upload/urls`) now use `asyncio.Semaphore` instead of unbounded `asyncio.gather`
+  - Default concurrency of 1 serializes downloads to avoid burst traffic patterns
+
 ## [1.4.0] - 2026-04-05
 
 ### Added

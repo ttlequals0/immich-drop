@@ -243,7 +243,7 @@ def create_api_routes(config):
         cookies_file = get_cookie_file_for_platform(platform, config.state_db) if platform else None
 
         # Download the file(s) -- may return multiple results for galleries
-        download_results = await download_from_url_multi(url, cookies_file=cookies_file)
+        download_results = await download_from_url_multi(url, cookies_file=cookies_file, settings=config)
 
         # Filter to successful downloads
         successful_downloads = [r for r in download_results if r.success]
@@ -359,7 +359,7 @@ def create_api_routes(config):
             cookies_file = get_cookie_file_for_platform(list(unique_platforms)[0], config.state_db)
 
         results = []
-        download_results = await download_multiple_urls(urls, cookies_file=cookies_file)
+        download_results = await download_multiple_urls(urls, cookies_file=cookies_file, settings=config)
 
         for download_result in download_results:
             # Derive platform from the result's metadata or original URL

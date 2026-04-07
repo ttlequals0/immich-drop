@@ -24,6 +24,11 @@ class Settings:
     log_level: str = "INFO"
     chunked_uploads_enabled: bool = False
     chunk_size_mb: int = 95
+    gallery_dl_sleep_request: str = "10-25"
+    gallery_dl_sleep: str = "5-15"
+    gallery_dl_timeout: int = 300
+    download_concurrency: int = 1
+    instagram_ytdlp_fallback: bool = False
 
     @property
     def normalized_base_url(self) -> str:
@@ -58,6 +63,17 @@ def load_settings() -> Settings:
         chunk_size_mb = int(os.getenv("CHUNK_SIZE_MB", "95"))
     except ValueError:
         chunk_size_mb = 95
+    gallery_dl_sleep_request = os.getenv("GALLERY_DL_SLEEP_REQUEST", "10-25")
+    gallery_dl_sleep = os.getenv("GALLERY_DL_SLEEP", "5-15")
+    try:
+        gallery_dl_timeout = int(os.getenv("GALLERY_DL_TIMEOUT", "300"))
+    except ValueError:
+        gallery_dl_timeout = 300
+    try:
+        download_concurrency = int(os.getenv("DOWNLOAD_CONCURRENCY", "1"))
+    except ValueError:
+        download_concurrency = 1
+    instagram_ytdlp_fallback = as_bool(os.getenv("INSTAGRAM_YTDLP_FALLBACK", "false"), False)
     return Settings(
         immich_base_url=base,
         immich_api_key=api_key,
@@ -70,4 +86,9 @@ def load_settings() -> Settings:
         log_level=log_level,
         chunked_uploads_enabled=chunked_uploads_enabled,
         chunk_size_mb=chunk_size_mb,
+        gallery_dl_sleep_request=gallery_dl_sleep_request,
+        gallery_dl_sleep=gallery_dl_sleep,
+        gallery_dl_timeout=gallery_dl_timeout,
+        download_concurrency=download_concurrency,
+        instagram_ytdlp_fallback=instagram_ytdlp_fallback,
     )

@@ -7,6 +7,7 @@ them to Netscape cookie file format for yt-dlp and gallery-dl consumption.
 import os
 import sqlite3
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from pathlib import Path
 
@@ -32,6 +33,13 @@ PLATFORM_DOMAINS = {
 
 # Cookie directory (inside /data volume)
 COOKIE_DIR = "/data/cookies"
+
+# In-memory cache: { platform: filepath }
+# Invalidated by db_upsert_cookie() and db_delete_cookie()
+_cookie_file_cache: dict[str, str] = {}
+
+# Staleness threshold (days) -- hardcoded, not user-configurable
+COOKIE_STALE_DAYS = 7
 
 
 def parse_cookie_string(cookie_str: str) -> list[tuple[str, str]]:
@@ -152,14 +160,26 @@ def delete_cookie_file(platform: str) -> bool:
     return False
 
 
+def is_cookie_stale(updated_at: str, stale_days: int = COOKIE_STALE_DAYS) -> bool:
+    """Check if a cookie's updated_at timestamp is older than stale_days."""
+    if not updated_at:
+        return True
+    try:
+        updated = datetime.fromisoformat(updated_at)
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        threshold = datetime.now(timezone.utc) - timedelta(days=stale_days)
+        return updated < threshold
+    except (ValueError, TypeError):
+        return True
+
+
 def get_cookie_file_for_platform(platform: str, state_db: str) -> Optional[str]:
     """
     Look up cookies for a platform from the database and return the cookie file path.
 
-    This is the main function called during downloads. It:
-    1. Queries the database for the platform's cookie string
-    2. Writes a Netscape format cookie file
-    3. Returns the file path (or None if no cookies configured)
+    Uses an in-memory cache to avoid rewriting the Netscape file on every call.
+    Logs a warning when cookies are stale.
 
     Args:
         platform: Platform name (e.g., "instagram")
@@ -173,11 +193,18 @@ def get_cookie_file_for_platform(platform: str, state_db: str) -> Optional[str]:
 
     platform = platform.lower()
 
+    # Check cache first to avoid DB query on every download
+    cached_path = _cookie_file_cache.get(platform)
+    if cached_path and os.path.exists(cached_path):
+        logger.debug("Using cached cookie file for %s", platform)
+        return cached_path
+
+    # Cache miss -- query DB
     try:
         conn = sqlite3.connect(state_db)
         cur = conn.cursor()
         cur.execute(
-            "SELECT cookie_string FROM platform_cookies WHERE platform = ?",
+            "SELECT cookie_string, updated_at FROM platform_cookies WHERE platform = ?",
             (platform,)
         )
         row = cur.fetchone()
@@ -186,9 +213,19 @@ def get_cookie_file_for_platform(platform: str, state_db: str) -> Optional[str]:
         if not row or not row[0]:
             return None
 
-        cookie_string = row[0]
+        cookie_string, updated_at = row
+
+        # Warn on stale cookies (only on cache miss, not every call)
+        if is_cookie_stale(updated_at):
+            logger.warning(
+                "Cookies for %s may be expired (last updated: %s). "
+                "Re-export from your browser if downloads fail.",
+                platform, updated_at,
+            )
+
         filepath = write_cookie_file(platform, cookie_string)
-        logger.debug("Using cookies for platform %s from %s", platform, filepath)
+        _cookie_file_cache[platform] = filepath
+        logger.debug("Wrote fresh cookie file for %s at %s", platform, filepath)
         return filepath
 
     except Exception as e:
@@ -256,6 +293,7 @@ def db_upsert_cookie(state_db: str, platform: str, cookie_string: str) -> bool:
 
         # Also write the cookie file immediately
         write_cookie_file(platform, cookie_string)
+        _cookie_file_cache.pop(platform, None)
         logger.info("Saved cookies for platform: %s", platform)
         return True
     except Exception as e:
@@ -279,6 +317,7 @@ def db_delete_cookie(state_db: str, platform: str) -> bool:
 
         # Also delete the cookie file
         delete_cookie_file(platform)
+        _cookie_file_cache.pop(platform, None)
 
         if deleted:
             logger.info("Deleted cookies for platform: %s", platform)

@@ -18,6 +18,12 @@ services:
       # Chunked uploads to bypass 100MB limits (e.g., Cloudflare Tunnel)
       CHUNKED_UPLOADS_ENABLED: true
       CHUNK_SIZE_MB: 95
+      # Instagram / gallery-dl anti-detection
+      GALLERY_DL_SLEEP_REQUEST: "10-25"
+      GALLERY_DL_SLEEP: "5-15"
+      GALLERY_DL_TIMEOUT: 300
+      DOWNLOAD_CONCURRENCY: 1
+      INSTAGRAM_YTDLP_FALLBACK: false
 
 
     volumes:

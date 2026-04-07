@@ -1839,6 +1839,7 @@ from .cookie_manager import (
     db_list_cookies,
     db_upsert_cookie,
     db_delete_cookie,
+    is_cookie_stale,
     PLATFORM_DOMAINS,
 )
 
@@ -1854,6 +1855,7 @@ async def api_cookies_list(request: Request) -> JSONResponse:
             c["cookie_preview"] = c["cookie_string"][:40] + "..."
         else:
             c["cookie_preview"] = c.get("cookie_string", "")
+        c["is_stale"] = is_cookie_stale(c.get("updated_at", ""))
     return JSONResponse({"items": cookies, "platforms": list(PLATFORM_DOMAINS.keys())})
 
 @app.post("/api/cookies")
