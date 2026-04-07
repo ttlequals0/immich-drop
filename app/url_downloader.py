@@ -385,8 +385,8 @@ async def extract_via_gallery_dl(
         "--filename", "{filename}.{extension}",
     ]
 
-    # Instagram-specific: randomized delays to look like a human
-    if platform == "instagram" and settings:
+    # Randomized delays to avoid rate limiting on all platforms
+    if settings:
         if settings.gallery_dl_sleep_request:
             cmd.extend(["--sleep-request", settings.gallery_dl_sleep_request])
         if settings.gallery_dl_sleep:
@@ -739,17 +739,29 @@ async def download_from_url_multi(
     if output_dir is None:
         output_dir = tempfile.mkdtemp(prefix="immich_drop_")
 
-    # Handle Reddit media redirect URLs (reddit.com/media?url=<encoded-image-url>)
+    # Resolve Reddit share links and media redirects to actual URLs
     try:
         parsed = urlparse(url)
-        if parsed.hostname and "reddit.com" in parsed.hostname and parsed.path == "/media":
-            params = parse_qs(parsed.query)
-            if "url" in params:
-                embedded_url = unquote(params["url"][0])
-                logger.info("Extracted embedded URL from Reddit media redirect: %s", embedded_url)
-                url = embedded_url
-    except Exception:
-        pass
+        if parsed.hostname and "reddit.com" in parsed.hostname:
+            # Share links (/r/.../s/...) redirect to the actual post or media URL
+            if "/s/" in parsed.path:
+                async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+                    head_resp = await client.head(url, headers={"User-Agent": BROWSER_USER_AGENT})
+                    resolved = str(head_resp.url)
+                    if resolved != url:
+                        logger.info("Resolved Reddit share link: %s -> %s", url, resolved)
+                        url = resolved
+                        parsed = urlparse(url)
+
+            # Media wrapper (reddit.com/media?url=<encoded-image-url>)
+            if parsed.hostname and "reddit.com" in parsed.hostname and parsed.path == "/media":
+                params = parse_qs(parsed.query)
+                if "url" in params:
+                    embedded_url = unquote(params["url"][0])
+                    logger.info("Extracted embedded URL from Reddit media redirect: %s", embedded_url)
+                    url = embedded_url
+    except Exception as e:
+        logger.debug("Reddit URL resolution failed for %s: %s", url, e)
 
     # 1. Direct image URLs bypass everything
     if is_direct_image_url(url):

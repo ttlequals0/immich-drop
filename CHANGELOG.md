@@ -18,8 +18,11 @@ All notable changes to this project will be documented in this file.
   - Handles gallery/carousel uploads with multiple results
 
 ### Fixed
-- Reddit `reddit.com/media?url=` redirect URLs now correctly extract and download the embedded image URL
-  - Previously failed with "Unsupported URL" because neither gallery-dl nor yt-dlp handles the redirect wrapper
+- Reddit share links (`/r/.../s/...`) now resolved via HTTP redirect before routing
+  - Share links that redirect to `reddit.com/media?url=` are properly extracted as direct image downloads
+  - Previously failed with "Unsupported URL" because yt-dlp cannot handle the media redirect wrapper
+- gallery-dl sleep flags now apply to ALL platforms (not just Instagram)
+  - Reddit was hitting rate limits ("API rate limit exceeded", HTTP 429) with the same pattern as Instagram
 
 ## [1.5.0] - 2026-04-07
 
