@@ -739,6 +739,19 @@ async def download_from_url_multi(
     if output_dir is None:
         output_dir = tempfile.mkdtemp(prefix="immich_drop_")
 
+    # Handle Reddit media redirect URLs (reddit.com/media?url=<encoded-image-url>)
+    try:
+        parsed = urlparse(url)
+        if parsed.hostname and "reddit.com" in parsed.hostname and parsed.path == "/media":
+            from urllib.parse import parse_qs, unquote
+            params = parse_qs(parsed.query)
+            if "url" in params:
+                embedded_url = unquote(params["url"][0])
+                logger.info("Extracted embedded URL from Reddit media redirect: %s", embedded_url)
+                url = embedded_url
+    except Exception:
+        pass
+
     # 1. Direct image URLs bypass everything
     if is_direct_image_url(url):
         logger.info("Detected direct image URL: %s", url)
