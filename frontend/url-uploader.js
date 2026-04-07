@@ -134,7 +134,7 @@ class UrlUploader {
         input.disabled = loading;
 
         if (loading) {
-            btnText.textContent = 'Downloading...';
+            btnText.textContent = 'Processing...';
             spinner.classList.remove('hidden');
         } else {
             btnText.textContent = 'Upload';
@@ -152,7 +152,7 @@ class UrlUploader {
         }
 
         this.setLoading(true);
-        this.setStatus('Downloading and uploading...', 'info');
+        this.setStatus('Submitting...', 'info');
 
         try {
             const resp = await fetch(`${this.apiBase}/api/upload/url`, {
@@ -163,28 +163,44 @@ class UrlUploader {
 
             const data = await resp.json();
 
-            if (data.success) {
+            if (!data.job_id) {
+                this.setStatus(data.detail || data.error || 'Upload failed', 'error');
+                this.setLoading(false);
+                return;
+            }
+
+            this.setStatus('Downloading...', 'info');
+            const result = await this.pollJobStatus(data.job_id);
+
+            if (result.status === 'completed' && result.result) {
+                const uploadData = result.result;
                 let statusMsg;
-                if (data.total_uploaded > 1) {
-                    statusMsg = `Successfully uploaded ${data.total_uploaded} items!`;
-                } else if (data.result.duplicate) {
+                if (uploadData.total_uploaded > 1) {
+                    statusMsg = `Successfully uploaded ${uploadData.total_uploaded} items!`;
+                } else if (uploadData.result && uploadData.result.duplicate) {
                     statusMsg = 'Already in library (duplicate)';
                 } else {
                     statusMsg = 'Successfully uploaded!';
                 }
                 this.setStatus(
                     statusMsg,
-                    data.result.duplicate ? 'warning' : 'success'
+                    uploadData.result && uploadData.result.duplicate ? 'warning' : 'success'
                 );
-                this.addResult(data.result);
-                if (data.additional_results) {
-                    data.additional_results.forEach(r => this.addResult(r));
+                if (uploadData.result) {
+                    this.addResult(uploadData.result);
+                }
+                if (uploadData.additional_results) {
+                    uploadData.additional_results.forEach(r => this.addResult(r));
                 }
                 input.value = '';
-                this.onUploadComplete(data.result);
+                if (uploadData.result) {
+                    this.onUploadComplete(uploadData.result);
+                }
+            } else if (result.status === 'failed') {
+                this.setStatus(result.error || 'Download failed', 'error');
+                this.onError(result.error);
             } else {
-                this.setStatus(data.error || 'Upload failed', 'error');
-                this.onError(data.error);
+                this.setStatus('Download timed out. Check the server logs.', 'error');
             }
         } catch (error) {
             this.setStatus(`Error: ${error.message}`, 'error');
@@ -192,6 +208,33 @@ class UrlUploader {
         } finally {
             this.setLoading(false);
         }
+    }
+
+    async pollJobStatus(jobId, intervalMs = 3000, maxAttempts = 100) {
+        for (let i = 0; i < maxAttempts; i++) {
+            await new Promise(resolve => setTimeout(resolve, intervalMs));
+            try {
+                const resp = await fetch(`${this.apiBase}/api/upload/url/status/${jobId}`);
+                if (!resp.ok) {
+                    if (resp.status === 404) {
+                        return { status: 'failed', error: 'Job not found or expired' };
+                    }
+                    continue;
+                }
+                const job = await resp.json();
+                if (job.status === 'downloading') {
+                    this.setStatus('Downloading...', 'info');
+                } else if (job.status === 'uploading') {
+                    this.setStatus('Uploading to Immich...', 'info');
+                }
+                if (job.status === 'completed' || job.status === 'failed') {
+                    return job;
+                }
+            } catch (e) {
+                // Network error, keep polling
+            }
+        }
+        return { status: 'failed', error: 'Polling timed out' };
     }
 
     async uploadBatch() {
