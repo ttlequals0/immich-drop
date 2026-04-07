@@ -14,6 +14,8 @@ import os
 import base64
 import logging
 import mimetypes
+import asyncio
+import time
 
 logger = logging.getLogger("immich_drop.api_routes")
 
@@ -29,6 +31,7 @@ from .url_downloader import (
 )
 from .cookie_manager import get_cookie_file_for_platform
 from .utils import detect_file_type
+from .job_manager import create_job, get_job, update_job, cleanup_expired
 
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -83,6 +86,19 @@ class BatchUploadResponse(BaseModel):
 class SupportedPlatformsResponse(BaseModel):
     platforms: List[str]
     examples: dict
+
+
+class JobResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    created_at: float
+    result: Optional[dict] = None
+    error: Optional[str] = None
 
 
 # ============================================================================
@@ -214,19 +230,16 @@ def create_api_routes(config):
             }
         )
 
-    @router.post("/upload/url", response_model=UrlUploadResponse)
+    @router.post("/upload/url", response_model=JobResponse)
     async def upload_from_url(
         url_request: UrlUploadRequest,
-        background_tasks: BackgroundTasks,
         request: Request,
     ):
         """
-        Download media from a supported URL and upload to Immich
-
-        Supported platforms: TikTok, Instagram, Reddit, YouTube, Twitter/X
+        Start async download from a supported URL.
+        Returns a job ID immediately. Poll /api/upload/url/status/{job_id} for results.
         """
         url = url_request.url.strip()
-        httpx_client = request.app.state.httpx_client
 
         # Validate URL
         platform = identify_platform(url)
@@ -239,88 +252,119 @@ def create_api_routes(config):
 
         logger.info("URL upload request: platform=%s direct_image=%s url=%s", platform, direct_image, url)
 
-        # Look up cookies for this platform (if configured)
-        cookies_file = get_cookie_file_for_platform(platform, config.state_db) if platform else None
+        job = create_job(url, url_request.album_name)
+        httpx_client = request.app.state.httpx_client
 
-        # Download the file(s) -- may return multiple results for galleries
-        download_results = await download_from_url_multi(url, cookies_file=cookies_file, settings=config)
+        asyncio.create_task(_process_url_job(job.id, url, url_request.album_name, platform, httpx_client))
 
-        # Filter to successful downloads
-        successful_downloads = [r for r in download_results if r.success]
-        if not successful_downloads:
-            first_error = download_results[0].error if download_results else "No media found"
-            logger.error("Download failed for %s: %s", url, first_error)
-            return UrlUploadResponse(
-                success=False,
-                error=first_error,
-            )
+        return JobResponse(job_id=job.id, status=job.status)
 
-        source_label = platform or "direct_image"
-        primary_upload_result = None
-        all_upload_results = []
-        total_uploaded = 0
-
+    async def _process_url_job(
+        job_id: str,
+        url: str,
+        album_name: Optional[str],
+        platform: Optional[str],
+        httpx_client,
+    ):
+        """Background task: download media from URL and upload to Immich."""
         try:
-            for download_result in successful_downloads:
-                with open(download_result.filepath, "rb") as f:
-                    file_content = f.read()
+            update_job(job_id, status="downloading")
 
-                logger.info(
-                    "Uploading to Immich: filename=%s content_type=%s size=%d bytes",
-                    download_result.filename,
-                    download_result.content_type,
-                    len(file_content),
+            cookies_file = get_cookie_file_for_platform(platform, config.state_db) if platform else None
+            download_results = await download_from_url_multi(url, cookies_file=cookies_file, settings=config)
+
+            successful_downloads = [r for r in download_results if r.success]
+            if not successful_downloads:
+                first_error = download_results[0].error if download_results else "No media found"
+                logger.error("Download failed for %s: %s", url, first_error)
+                update_job(job_id, status="failed", error=first_error)
+                return
+
+            update_job(job_id, status="uploading")
+
+            source_label = platform or "direct_image"
+            primary_upload_result = None
+            all_upload_results = []
+            total_uploaded = 0
+
+            try:
+                for download_result in successful_downloads:
+                    with open(download_result.filepath, "rb") as f:
+                        file_content = f.read()
+
+                    logger.info(
+                        "Uploading to Immich: filename=%s content_type=%s size=%d bytes",
+                        download_result.filename,
+                        download_result.content_type,
+                        len(file_content),
+                    )
+
+                    file_created_at = None
+                    if download_result.metadata:
+                        timestamp = download_result.metadata.get("timestamp")
+                        if timestamp:
+                            file_created_at = datetime.fromtimestamp(timestamp).isoformat() + "Z"
+
+                    upload_result = await upload_to_immich(
+                        file_content=file_content,
+                        filename=download_result.filename,
+                        content_type=download_result.content_type,
+                        config=config,
+                        httpx_client=httpx_client,
+                        device_id=f"immich-drop-{source_label}",
+                        file_created_at=file_created_at,
+                    )
+                    upload_result.platform = source_label
+
+                    target_album = album_name or getattr(config, 'album_name', None)
+                    if target_album and upload_result.asset_id and upload_result.status == "success":
+                        await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client)
+
+                    if upload_result.status == "success":
+                        total_uploaded += 1
+
+                    all_upload_results.append(upload_result)
+
+                    if primary_upload_result is None:
+                        primary_upload_result = upload_result
+
+                if total_uploaded > 1:
+                    logger.info(
+                        "Gallery upload complete: %d/%d items uploaded for %s",
+                        total_uploaded, len(successful_downloads), url,
+                    )
+
+                response = UrlUploadResponse(
+                    success=primary_upload_result.status == "success",
+                    result=primary_upload_result,
+                    error=primary_upload_result.error,
+                    total_uploaded=total_uploaded,
+                    additional_results=all_upload_results[1:],
                 )
+                update_job(job_id, status="completed", result=response.model_dump())
 
-                # Extract timestamp from metadata if available
-                file_created_at = None
-                if download_result.metadata:
-                    timestamp = download_result.metadata.get("timestamp")
-                    if timestamp:
-                        file_created_at = datetime.fromtimestamp(timestamp).isoformat() + "Z"
+            finally:
+                for download_result in download_results:
+                    cleanup_download(download_result)
 
-                upload_result = await upload_to_immich(
-                    file_content=file_content,
-                    filename=download_result.filename,
-                    content_type=download_result.content_type,
-                    config=config,
-                    httpx_client=httpx_client,
-                    device_id=f"immich-drop-{source_label}",
-                    file_created_at=file_created_at,
-                )
-                upload_result.platform = source_label
+        except Exception as e:
+            logger.exception("Job %s failed: %s", job_id, e)
+            update_job(job_id, status="failed", error=str(e))
 
-                # Add to album if specified or configured
-                album_name = url_request.album_name or getattr(config, 'album_name', None)
-                if album_name and upload_result.asset_id and upload_result.status == "success":
-                    await add_asset_to_album(upload_result.asset_id, album_name, config, httpx_client)
-
-                if upload_result.status == "success":
-                    total_uploaded += 1
-
-                all_upload_results.append(upload_result)
-
-                # Keep first result as the primary response
-                if primary_upload_result is None:
-                    primary_upload_result = upload_result
-
-            if total_uploaded > 1:
-                logger.info(
-                    "Gallery upload complete: %d/%d items uploaded for %s",
-                    total_uploaded, len(successful_downloads), url,
-                )
-
-            return UrlUploadResponse(
-                success=primary_upload_result.status == "success",
-                result=primary_upload_result,
-                error=primary_upload_result.error,
-                total_uploaded=total_uploaded,
-                additional_results=all_upload_results[1:],
-            )
-
-        finally:
-            for download_result in download_results:
-                background_tasks.add_task(cleanup_download, download_result)
+    @router.get("/upload/url/status/{job_id}", response_model=JobStatusResponse)
+    async def get_upload_status(job_id: str):
+        """Poll for the status of an async URL upload job."""
+        cleanup_expired()
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found or expired")
+        return JobStatusResponse(
+            job_id=job.id,
+            status=job.status,
+            created_at=job.created_at,
+            result=job.result,
+            error=job.error,
+        )
 
     @router.post("/upload/urls", response_model=BatchUploadResponse)
     async def upload_from_urls(
