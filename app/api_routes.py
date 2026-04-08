@@ -358,8 +358,6 @@ def create_api_routes(config):
         job = get_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found or expired")
-        # Build response, omitting null fields so iOS Shortcuts
-        # "has any value" checks work correctly (null vs absent)
         resp = {
             "job_id": job.id,
             "status": job.status,
