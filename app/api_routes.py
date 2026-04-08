@@ -95,6 +95,7 @@ class JobResponse(BaseModel):
 class JobStatusResponse(BaseModel):
     job_id: str
     status: str
+    done: int = 0  # 0 = in progress, 1 = completed, 2 = failed
     created_at: float
     result: Optional[dict] = None
     error: Optional[str] = None
@@ -357,9 +358,15 @@ def create_api_routes(config):
         job = get_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found or expired")
+        done = 0
+        if job.status == "completed":
+            done = 1
+        elif job.status == "failed":
+            done = 2
         return JobStatusResponse(
             job_id=job.id,
             status=job.status,
+            done=done,
             created_at=job.created_at,
             result=job.result,
             error=job.error,
