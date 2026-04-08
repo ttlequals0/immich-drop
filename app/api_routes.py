@@ -358,19 +358,20 @@ def create_api_routes(config):
         job = get_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found or expired")
-        done = "0"
-        if job.status == "completed":
-            done = "1"
-        elif job.status == "failed":
-            done = "2"
-        return JobStatusResponse(
-            job_id=job.id,
-            status=job.status,
-            done=done,
-            created_at=job.created_at,
-            result=job.result,
-            error=job.error,
-        )
+        # Build response, omitting null fields so iOS Shortcuts
+        # "has any value" checks work correctly (null vs absent)
+        resp = {
+            "job_id": job.id,
+            "status": job.status,
+            "created_at": job.created_at,
+        }
+        if job.status == "completed" and job.result is not None:
+            resp["completed"] = "yes"
+            resp["result"] = job.result
+        if job.status == "failed":
+            resp["failed"] = "yes"
+            resp["error"] = job.error or "Unknown error"
+        return JSONResponse(resp)
 
     @router.post("/upload/urls", response_model=BatchUploadResponse)
     async def upload_from_urls(
