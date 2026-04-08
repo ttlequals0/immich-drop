@@ -745,7 +745,22 @@ async def download_from_url_multi(
         if parsed.hostname and "reddit.com" in parsed.hostname:
             # Share links (/r/.../s/...) redirect to the actual post or media URL
             if "/s/" in parsed.path:
-                async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+                async def _ssrf_check_redirect(response):
+                    if response.is_redirect:
+                        location = response.headers.get("location", "")
+                        if location:
+                            err = _validate_url_target(location)
+                            if err:
+                                raise httpx.HTTPStatusError(
+                                    f"Redirect blocked (SSRF): {err}",
+                                    request=response.request, response=response,
+                                )
+
+                async with httpx.AsyncClient(
+                    follow_redirects=True,
+                    timeout=15.0,
+                    event_hooks={"response": [_ssrf_check_redirect]},
+                ) as client:
                     head_resp = await client.head(url, headers={"User-Agent": BROWSER_USER_AGENT})
                     resolved = str(head_resp.url)
                     if resolved != url:
