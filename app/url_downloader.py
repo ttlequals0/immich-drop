@@ -811,6 +811,16 @@ async def download_from_url_multi(
 
     # 3. yt-dlp fallback for video platforms and gallery-dl failures
     result = await download_from_url(url, output_dir, cookies_file)
+
+    # If yt-dlp failed on a reddit.com/media?url= redirect, extract the embedded image URL
+    if not result.success and result.error and "reddit.com/media?url=" in result.error:
+        import re
+        match = re.search(r'reddit\.com/media\?url=(https?%3A%2F%2F[^\s"\']+)', result.error)
+        if match:
+            embedded_url = unquote(match.group(1))
+            logger.info("Extracting embedded image URL from yt-dlp Reddit media error: %s", embedded_url)
+            result = await download_direct_image(embedded_url, output_dir)
+
     return [result]
 
 

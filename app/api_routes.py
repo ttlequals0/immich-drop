@@ -364,10 +364,8 @@ def create_api_routes(config):
             "created_at": job.created_at,
         }
         if job.status == "completed" and job.result is not None:
-            resp["completed"] = "yes"
             resp["result"] = job.result
         if job.status == "failed":
-            resp["failed"] = "yes"
             resp["error"] = job.error or "Unknown error"
         return JSONResponse(resp)
 
