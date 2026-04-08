@@ -3,6 +3,8 @@ URL Downloader module for immich-drop
 Downloads videos/images from supported platforms using gallery-dl and yt-dlp.
 Also supports direct image URL downloads via httpx.
 """
+from __future__ import annotations
+
 import os
 import re
 import tempfile
@@ -13,14 +15,17 @@ import logging
 import signal
 import socket
 from pathlib import Path
-from typing import Optional, List
-from urllib.parse import urlparse
+from typing import Optional, List, TYPE_CHECKING
+from urllib.parse import urlparse, parse_qs, unquote
 from dataclasses import dataclass
 import json
 
 import httpx
 
 from .utils import detect_file_type
+
+if TYPE_CHECKING:
+    from .config import Settings
 
 logger = logging.getLogger("immich_drop.url_downloader")
 
@@ -337,8 +342,8 @@ BROWSER_USER_AGENT = (
     "Chrome/131.0.0.0 Safari/537.36"
 )
 
-# gallery-dl subprocess timeout (seconds)
-GALLERY_DL_TIMEOUT = 120
+# Default gallery-dl subprocess timeout (seconds); overridden by settings
+_DEFAULT_GALLERY_DL_TIMEOUT = 300
 
 # Content type map shared across download methods
 CONTENT_TYPE_MAP = {
@@ -363,6 +368,8 @@ async def extract_via_gallery_dl(
     url: str,
     output_dir: str,
     cookies_file: Optional[str] = None,
+    platform: Optional[str] = None,
+    settings: Optional[Settings] = None,
 ) -> Optional[List[DownloadResult]]:
     """
     Extract and download media using gallery-dl as a subprocess.
@@ -377,6 +384,13 @@ async def extract_via_gallery_dl(
         "-d", output_dir,
         "--filename", "{filename}.{extension}",
     ]
+
+    # Randomized delays to avoid rate limiting on all platforms
+    if settings:
+        if settings.gallery_dl_sleep_request:
+            cmd.extend(["--sleep-request", settings.gallery_dl_sleep_request])
+        if settings.gallery_dl_sleep:
+            cmd.extend(["--sleep", settings.gallery_dl_sleep])
 
     if cookies_file and os.path.exists(cookies_file):
         cmd.extend(["--cookies", cookies_file])
@@ -393,10 +407,11 @@ async def extract_via_gallery_dl(
             start_new_session=True,
         )
 
+        timeout = settings.gallery_dl_timeout if settings else _DEFAULT_GALLERY_DL_TIMEOUT
         try:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
-                timeout=GALLERY_DL_TIMEOUT,
+                timeout=timeout,
             )
         except asyncio.TimeoutError:
             # Kill the entire process group to clean up any child processes
@@ -405,7 +420,7 @@ async def extract_via_gallery_dl(
             except (ProcessLookupError, OSError):
                 process.kill()
             await process.communicate()
-            logger.warning("gallery-dl timed out after %ds for %s", GALLERY_DL_TIMEOUT, url)
+            logger.warning("gallery-dl timed out after %ds for %s", timeout, url)
             return None
 
         if stderr:
@@ -682,16 +697,24 @@ async def download_multiple_urls(
     urls: List[str],
     output_dir: Optional[str] = None,
     cookies_file: Optional[str] = None,
+    settings: Optional[Settings] = None,
 ) -> List[DownloadResult]:
-    """Download multiple URLs concurrently, with gallery-dl and yt-dlp support."""
+    """Download multiple URLs with concurrency limited by semaphore."""
     if output_dir is None:
         output_dir = tempfile.mkdtemp(prefix="immich_drop_batch_")
+
+    concurrency = max(1, settings.download_concurrency if settings else 1)
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _download_with_sem(url: str, sub_dir: str) -> List[DownloadResult]:
+        async with sem:
+            return await download_from_url_multi(url, sub_dir, cookies_file, settings=settings)
 
     tasks = []
     for i, url in enumerate(urls):
         sub_dir = os.path.join(output_dir, f"item_{i}")
         os.makedirs(sub_dir, exist_ok=True)
-        tasks.append(download_from_url_multi(url, sub_dir, cookies_file))
+        tasks.append(_download_with_sem(url, sub_dir))
 
     nested_results = await asyncio.gather(*tasks)
     # Flatten: download_from_url_multi returns List[DownloadResult] per URL
@@ -702,6 +725,7 @@ async def download_from_url_multi(
     url: str,
     output_dir: Optional[str] = None,
     cookies_file: Optional[str] = None,
+    settings: Optional[Settings] = None,
 ) -> List[DownloadResult]:
     """
     Download media from a URL, returning multiple results for galleries/carousels.
@@ -710,9 +734,49 @@ async def download_from_url_multi(
     1. Direct image URLs -> download_direct_image() (fast path, SSRF-protected)
     2. gallery-dl platforms -> extract_via_gallery_dl() (image-focused extraction)
     3. yt-dlp fallback -> download_from_url() (video-focused extraction)
+       Blocked for Instagram by default to avoid double-scraper detection.
     """
     if output_dir is None:
         output_dir = tempfile.mkdtemp(prefix="immich_drop_")
+
+    # Resolve Reddit share links and media redirects to actual URLs
+    try:
+        parsed = urlparse(url)
+        if parsed.hostname and "reddit.com" in parsed.hostname:
+            # Share links (/r/.../s/...) redirect to the actual post or media URL
+            if "/s/" in parsed.path:
+                async def _ssrf_check_redirect(response):
+                    if response.is_redirect:
+                        location = response.headers.get("location", "")
+                        if location:
+                            err = _validate_url_target(location)
+                            if err:
+                                raise httpx.HTTPStatusError(
+                                    f"Redirect blocked (SSRF): {err}",
+                                    request=response.request, response=response,
+                                )
+
+                async with httpx.AsyncClient(
+                    follow_redirects=True,
+                    timeout=15.0,
+                    event_hooks={"response": [_ssrf_check_redirect]},
+                ) as client:
+                    head_resp = await client.head(url, headers={"User-Agent": BROWSER_USER_AGENT})
+                    resolved = str(head_resp.url)
+                    if resolved != url:
+                        logger.info("Resolved Reddit share link: %s -> %s", url, resolved)
+                        url = resolved
+                        parsed = urlparse(url)
+
+            # Media wrapper (reddit.com/media?url=<encoded-image-url>)
+            if parsed.hostname and "reddit.com" in parsed.hostname and parsed.path == "/media":
+                params = parse_qs(parsed.query)
+                if "url" in params:
+                    embedded_url = unquote(params["url"][0])
+                    logger.info("Extracted embedded URL from Reddit media redirect: %s", embedded_url)
+                    url = embedded_url
+    except Exception as e:
+        logger.debug("Reddit URL resolution failed for %s: %s", url, e)
 
     # 1. Direct image URLs bypass everything
     if is_direct_image_url(url):
@@ -724,15 +788,39 @@ async def download_from_url_multi(
 
     # 2. gallery-dl for image-heavy platforms (and any unrecognized-but-supported)
     if platform in GALLERY_DL_PLATFORMS or (platform and platform not in YTDLP_PLATFORMS):
-        results = await extract_via_gallery_dl(url, output_dir, cookies_file)
+        results = await extract_via_gallery_dl(
+            url, output_dir, cookies_file, platform=platform, settings=settings,
+        )
         if results:
             return results
+
+        # Block yt-dlp fallback for Instagram to avoid double-scraper detection
+        if platform == "instagram" and not (settings and settings.instagram_ytdlp_fallback):
+            logger.warning(
+                "gallery-dl failed for Instagram URL %s; yt-dlp fallback disabled", url,
+            )
+            return [DownloadResult(
+                success=False,
+                error="Instagram download failed. gallery-dl could not extract media. "
+                      "Check that your Instagram cookies are fresh and valid.",
+            )]
+
         logger.info(
             "gallery-dl returned no results for %s, falling back to yt-dlp", url,
         )
 
     # 3. yt-dlp fallback for video platforms and gallery-dl failures
     result = await download_from_url(url, output_dir, cookies_file)
+
+    # If yt-dlp failed on a reddit.com/media?url= redirect, extract the embedded image URL
+    if not result.success and result.error and "reddit.com/media?url=" in result.error:
+        import re
+        match = re.search(r'reddit\.com/media\?url=(https?%3A%2F%2F[^\s"\']+)', result.error)
+        if match:
+            embedded_url = unquote(match.group(1))
+            logger.info("Extracting embedded image URL from yt-dlp Reddit media error: %s", embedded_url)
+            result = await download_direct_image(embedded_url, output_dir)
+
     return [result]
 
 

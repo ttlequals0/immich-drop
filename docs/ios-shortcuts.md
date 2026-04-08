@@ -1,116 +1,57 @@
-# iOS Shortcuts for immich-drop
+# iOS Shortcut for immich-drop
 
-Upload photos, videos, and social media links directly to your Immich server from your iPhone or iPad.
+Share a link from any app on your iPhone, download the media, and upload it to Immich.
 
 ## Download the Shortcut
 
-**[Download "Save to Immich" Shortcut](https://www.icloud.com/shortcuts/fcd52bd36a3c4a569bae1d6dfe743756)**
+**[Download "Dead-Drop" Shortcut](Dead-Drop.shortcut)**
 
-This shortcut handles:
-- Photos (JPEG, HEIC, PNG, etc.)
-- Videos (MOV, MP4)
-- Social media URLs (TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X, Flickr, Imgur, and more)
+Supports TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X, Flickr, Imgur, Tumblr, Pinterest, Bluesky, and direct image URLs.
 
 ## Setup
 
-1. Tap the download link above on your iOS device
-2. Tap "Add Shortcut"
-3. **Important:** Edit the shortcut and update the `ServerName` variable to your immich-drop server URL:
-   - Example: `https://drop.yourdomain.com`
-   - Example: `http://192.168.1.100:8080`
+1. Download the `.shortcut` file on your iOS device and tap to import
+2. Edit the shortcut in the Shortcuts app
+3. Find the two `https://YOUR-SERVER-HERE.example.com` URLs and replace with your server:
+   - The POST URL: `https://your-server.com/api/upload/url`
+   - The status poll URL: `https://your-server.com/api/upload/url/status/`
+4. Or rebuild with your server URL using `docs/build-shortcut.py` (see below)
 
 ## Usage
 
-### For Photos and Videos
-
-1. Select photos/videos in the Photos app (or any app)
-2. Tap the Share button
-3. Select "Save to Immich"
-4. Files upload automatically
-
-### For Social Media URLs
-
 1. Open TikTok, Instagram, Facebook, Reddit, YouTube, Twitter, or other supported platforms
 2. Find a video/post you want to save
-3. Tap Share -> "Save to Immich"
-4. The video downloads and uploads automatically
-
-**Note:** Facebook Reels require shortcut v1.2.9+ which uses "Get URLs from Input" for URL
-detection. The older "contains http" text check does not work with Facebook's share sheet
-format. See [Updating an Existing Shortcut](#updating-an-existing-shortcut) below.
+3. Tap Share -> "Dead-Drop"
+4. The shortcut submits the URL, polls for completion, and shows a notification when done
 
 ## How It Works
 
-The shortcut:
-1. Uses "Get URLs from Input" to extract URLs from any share sheet input type
-2. For URLs: Sends to `/api/upload/url` endpoint for server-side download
-3. For videos: Uses "Encode Media" with Passthrough to preserve raw video data
-4. For images: Encodes directly to base64
-5. Uploads via `/api/upload/base64` endpoint with auto-detected file type
+The shortcut uses async polling to avoid iOS timeout issues:
 
-The server automatically detects file types from magic bytes, so filename extensions are optional.
+1. Extracts the URL from Share Sheet input
+2. POSTs to `/api/upload/url` which returns a job ID immediately
+3. Polls `/api/upload/url/status/{job_id}` every 3 seconds
+4. When the `result` field appears in the response -> shows "Upload complete"
+5. When the `error` field appears -> shows "Upload failed"
+6. Exits the shortcut after showing the alert
 
----
+This handles slow downloads (Instagram with anti-detection sleep delays can take 60+ seconds) without hitting iOS Shortcuts' HTTP timeout.
 
-## Updating an Existing Shortcut
+## Building the Shortcut
 
-If you have an older version of the shortcut that uses a "contains http" text check to
-detect URLs, you need to update it for Facebook support. The old text check does not work
-with Facebook's share sheet format -- the URL is present but not as plain text, so the
-check fails and the shortcut uploads a thumbnail image instead of the video.
+The shortcut is built programmatically from `docs/build-shortcut.py`:
 
-### Steps to update
+```bash
+# Edit SERVER variable in build-shortcut.py first
+python docs/build-shortcut.py
+# Output: ~/Downloads/Dead-Drop.shortcut
+```
 
-1. Open the Shortcuts app and edit your "Save to Immich" shortcut
-2. Find the **If** block that checks `if [Shortcut Input] contains "http"`
-3. Add a **Get URLs from Input** action before the If block, with input set to `Shortcut Input`
-4. Add a **Get Item from List** action: get `First Item` from `URLs`
-5. Change the **If** condition to: `if [URLs] has any value`
-6. In the URL upload POST body, change the `url` value from `Shortcut Input` to `Item from List`
-7. Keep the Otherwise branch (media/base64 path) unchanged
+The script generates an unsigned plist and signs it with `shortcuts sign`. The signed `.shortcut` file can be imported on any iOS device.
 
-This also improves reliability for any app that shares rich links instead of plain text URLs.
+### Why not build it by hand?
 
----
-
-## Troubleshooting
-
-### "Request failed" or timeout errors
-- Check your server URL is correct in the `ServerName` variable
-- Ensure your server is accessible from your phone (not just local network if on cellular)
-- Large videos may take time to process - be patient
-
-### "The network connection was lost"
-- This usually means the request body wasn't sent correctly
-- Make sure you're using the official shortcut from the link above
-
-### "Unsupported URL" error
-- Make sure you're sharing the video/post URL, not just text
-- See the [full list of supported platforms](../README.md#url-downloads) in the README
-
-### Videos not downloading from Instagram
-- Instagram stories/posts may require authentication
-- Configure platform cookies in the immich-drop admin menu
-- Try public posts first
-
-### "413 Request Entity Too Large"
-- If using a reverse proxy (nginx, Traefik), increase body size limit
-- For nginx: `client_max_body_size 500M;`
-
-### Facebook Reels upload a thumbnail instead of the video
-- Your shortcut is using the old "contains http" URL detection
-- Facebook's share sheet passes URLs in a format that the text check doesn't see
-- Update your shortcut to use "Get URLs from Input" instead -- see [Updating an Existing Shortcut](#updating-an-existing-shortcut) above
-
-### Facebook Reels show "Unsupported URL" error
-- Make sure your immich-drop server is v1.2.8 or later
-- Supported URL formats: /reel/, /videos/, /watch, /share/v/, /share/r/, fb.watch short links
-- If using a private video, configure Facebook cookies in the admin menu
-
-### Images appear corrupted
-- Make sure you're using the latest shortcut version
-- The shortcut uses "Encode Media" for videos and direct base64 for images
-- Server v1.2.6+ auto-detects file types from content
+`shortcuts sign` silently strips parameters from the plist. String comparisons, number comparisons, explicit HTTP bodies -- all gone after signing. The only way to get a working shortcut with conditional logic is to know which parameter formats survive and which don't. The script handles that. See `ios-shortcuts-plist-reference.md` for the full list of quirks.
 
 ---
 
@@ -118,38 +59,69 @@ This also improves reliability for any app that shares rich links instead of pla
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/upload/base64` | POST | Upload base64-encoded file (JSON: data, filename) - Recommended for iOS |
-| `/api/upload/url` | POST | Download and upload from URL (JSON: url) |
+| `/api/upload/url` | POST | Submit URL for async download (returns job_id) |
+| `/api/upload/url/status/{job_id}` | GET | Poll job status |
+| `/api/upload/base64` | POST | Upload base64-encoded file (JSON: data, filename) |
 | `/api/upload/urls` | POST | Batch URL downloads (JSON: urls[], max 10) |
 | `/api/supported-platforms` | GET | List supported URL platforms |
 
-### Base64 Upload Format
+### URL Upload (async)
 
-```json
-{
-  "data": "base64-encoded-file-content",
-  "filename": "optional-filename.jpg",
-  "album_name": "optional-album-name"
-}
+```
+POST /api/upload/url
+Content-Type: application/json
+
+{"url": "https://www.tiktok.com/@user/video/123"}
 ```
 
-The server auto-detects file type from magic bytes. Supported formats:
-- Images: JPEG, PNG, GIF, WebP, HEIC, AVIF, BMP, TIFF
-- Videos: MP4, MOV
+Response (immediate):
+```json
+{"job_id": "abc123", "status": "pending"}
+```
+
+Poll:
+```
+GET /api/upload/url/status/abc123
+```
+
+While downloading:
+```json
+{"job_id": "abc123", "status": "downloading", "created_at": 1234567890.0}
+```
+
+On completion:
+```json
+{"job_id": "abc123", "status": "completed", "created_at": 1234567890.0, "result": {"success": true, "result": {"filename": "video.mp4", "status": "success", "asset_id": "uuid"}}}
+```
+
+On failure:
+```json
+{"job_id": "abc123", "status": "failed", "created_at": 1234567890.0, "error": "Error message"}
+```
 
 ---
 
-## Manual Shortcut Creation
+## Troubleshooting
 
-If you prefer to create the shortcut manually or want to customize it, the key components are:
+### Shortcut shows "Upload failed"
+- Check server logs for the actual error
+- Reddit posts may fail with 429 (rate limited) -- wait a few minutes and retry
+- Instagram requires fresh cookies configured in the admin menu
 
-1. **URL Detection**: Use "Get URLs from Input" on Shortcut Input, then "Get First Item from List" to extract the URL. Use an If block to check if URLs has any value.
-2. **URL Upload**: POST the extracted URL to `ServerName/api/upload/url` as JSON with key `url`
-3. **Video Detection**: Use "Get Details of Images" -> "File Extension" to detect .mov/.mp4
-4. **Video Processing**: Use "Encode Media" with Size: Passthrough before base64 encoding
-5. **Image Processing**: Base64 encode directly with Line Breaks: None
-6. **JSON Body**: Build manually with Text action, send as Request Body: File
-7. **Result Handling**: Store upload result in a variable before End If to handle both paths
+### Shortcut keeps polling without completing
+- Check that your server is running v1.6.0+
+- The status endpoint must return `result` or `error` fields only when the job is done
+- Jobs expire after 10 minutes
 
-**Important:** Do not use "contains http" for URL detection -- it does not work with apps
-(like Facebook) that share URLs as rich links instead of plain text.
+### "Unsupported URL" error
+- Make sure you're sharing the video/post URL, not just text
+- See the [full list of supported platforms](../README.md#url-downloads) in the README
+
+### Instagram downloads slow
+- Anti-detection sleep delays (10-25 seconds between requests) are intentional
+- The async polling handles this -- the shortcut waits up to 90 seconds
+
+### Reddit image posts failing
+- Some Reddit image posts redirect through `reddit.com/media?url=` which gallery-dl and yt-dlp can't handle directly
+- Server v1.6.1+ extracts the embedded image URL automatically
+- If you see 429 errors, Reddit is rate-limiting you -- wait a few minutes

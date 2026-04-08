@@ -19,7 +19,7 @@ Admin users log in to create public invite links; invite links are always public
 - **Mobile + Dark Mode:** responsive UI, safe-area padding, persistent theme
 - **URL Downloads:** download from TikTok, Instagram, Facebook, Reddit, YouTube, Twitter, Flickr, Imgur, Tumblr, Pinterest, and many more -- upload to Immich
 - **Platform Cookies:** add authentication cookies for platforms requiring login (Instagram, TikTok, etc.)
-- **iOS Shortcuts:** share photos/videos or social media URLs directly from your iPhone ([setup guide](docs/ios-shortcuts.md))
+- **iOS Shortcut:** share social media URLs from your iPhone to Immich ([setup guide](docs/ios-shortcuts.md))
 
 ---
 
@@ -104,16 +104,13 @@ docker compose up -d
 ```
 ---
 
-## iOS Shortcuts
+## iOS Shortcut
 
-Share photos, videos, and social media links directly from your iPhone to Immich.
+Share a social media link from any app on your iPhone and upload it to Immich.
 
-**Features:**
-- Single shortcut handles both files AND URLs (TikTok, Instagram, Facebook, Reddit, YouTube, Twitter)
-- Upload multiple photos/videos at once
-- Shows upload progress notifications
+Works with TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X, and more. Uses async polling so it won't time out on slow downloads.
 
-**[View Setup Guide](docs/ios-shortcuts.md)**
+**[Setup guide and download](docs/ios-shortcuts.md)**
 
 ---
 
