@@ -1,15 +1,12 @@
-# iOS Shortcuts for immich-drop
+# iOS Shortcut for immich-drop
 
-Save social media links directly to your Immich server from your iPhone or iPad.
+Share a link from any app on your iPhone, download the media, and upload it to Immich.
 
 ## Download the Shortcut
 
 **[Download "Dead-Drop" Shortcut](Dead-Drop.shortcut)**
 
-This shortcut handles URL uploads from:
-- TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X
-- Flickr, Imgur, Tumblr, Pinterest, Bluesky, and more
-- Any direct image URL
+Supports TikTok, Instagram, Facebook, Reddit, YouTube, Twitter/X, Flickr, Imgur, Tumblr, Pinterest, Bluesky, and direct image URLs.
 
 ## Setup
 
@@ -52,16 +49,9 @@ python docs/build-shortcut.py
 
 The script generates an unsigned plist and signs it with `shortcuts sign`. The signed `.shortcut` file can be imported on any iOS device.
 
-### Why build programmatically?
+### Why not build it by hand?
 
-Apple Shortcuts' plist format has many undocumented quirks:
-- `shortcuts sign` strips `WFConditionalActionString` (string comparisons) and `WFNumberValue` (number comparisons) from signed files
-- Variable references inside text tokens need raw dicts, not `WFSerializationType` wrappers
-- `WFHTTPBody` parameter gets stripped -- request bodies must flow via implicit input
-- `WFWorkflowHasShortcutInputVariables` must be `true` for Share Sheet input to work
-- Full reference: see `ios-shortcuts-plist-reference.md` in Downloads (generated during development)
-
-Building from the script ensures all these quirks are handled correctly.
+`shortcuts sign` silently strips parameters from the plist. String comparisons, number comparisons, explicit HTTP bodies -- all gone after signing. The only way to get a working shortcut with conditional logic is to know which parameter formats survive and which don't. The script handles that. See `ios-shortcuts-plist-reference.md` for the full list of quirks.
 
 ---
 
