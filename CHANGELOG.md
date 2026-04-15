@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.2] - 2026-04-15
+
+### Changed
+- URL upload no longer restricts to a hand-maintained platform allowlist. Any URL
+  is accepted; yt-dlp or gallery-dl attempts the download and the job fails
+  cleanly if neither tool can handle it.
+- `GET /api/supported-platforms` now returns an advisory list only; any URL is
+  accepted by the upload endpoint regardless of what this returns.
+- Removed `is_supported_url()`.
+
+### Fixed
+- Reddit `media?url=` redirect detection now tolerates trailing slashes
+  (`/media/` vs `/media`).
+- Reddit share links that resolve to an empty URL, the original URL, or another
+  `/s/` link now fail fast with a clear error instead of being passed to yt-dlp.
+- yt-dlp HTTP 429 responses surface as "Rate limited by source" instead of the
+  raw stderr.
+
+### Added
+- For unknown/generic URLs, gallery-dl is attempted as a last-resort fallback
+  after yt-dlp fails, widening coverage to anything either tool supports.
+
 ## [1.6.0] - 2026-04-07
 
 ### Added

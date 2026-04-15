@@ -505,11 +505,6 @@ async def download_from_url(
     does not handle the URL or fails). Called by download_from_url_multi().
     """
     platform = identify_platform(url)
-    if not platform:
-        return DownloadResult(
-            success=False,
-            error=f"Unsupported URL. Supported platforms: {', '.join(SUPPORTED_PATTERNS.keys())}"
-        )
 
     # Create output directory
     if output_dir is None:
@@ -763,13 +758,17 @@ async def download_from_url_multi(
                 ) as client:
                     head_resp = await client.head(url, headers={"User-Agent": BROWSER_USER_AGENT})
                     resolved = str(head_resp.url)
-                    if resolved != url:
-                        logger.info("Resolved Reddit share link: %s -> %s", url, resolved)
-                        url = resolved
-                        parsed = urlparse(url)
+                    if not resolved or resolved == url or "/s/" in urlparse(resolved).path:
+                        return [DownloadResult(
+                            success=False,
+                            error=f"Reddit share link did not resolve to a post: {url}",
+                        )]
+                    logger.info("Resolved Reddit share link: %s -> %s", url, resolved)
+                    url = resolved
+                    parsed = urlparse(url)
 
             # Media wrapper (reddit.com/media?url=<encoded-image-url>)
-            if parsed.hostname and "reddit.com" in parsed.hostname and parsed.path == "/media":
+            if parsed.hostname and "reddit.com" in parsed.hostname and parsed.path.rstrip("/") == "/media":
                 params = parse_qs(parsed.query)
                 if "url" in params:
                     embedded_url = unquote(params["url"][0])
@@ -814,12 +813,30 @@ async def download_from_url_multi(
 
     # If yt-dlp failed on a reddit.com/media?url= redirect, extract the embedded image URL
     if not result.success and result.error and "reddit.com/media?url=" in result.error:
-        import re
         match = re.search(r'reddit\.com/media\?url=(https?%3A%2F%2F[^\s"\']+)', result.error)
         if match:
             embedded_url = unquote(match.group(1))
             logger.info("Extracting embedded image URL from yt-dlp Reddit media error: %s", embedded_url)
             result = await download_direct_image(embedded_url, output_dir)
+
+    # Surface rate-limit failures with a clearer message
+    if not result.success and result.error and "HTTP Error 429" in result.error:
+        result = DownloadResult(
+            success=False,
+            error=f"Rate limited by source ({platform or 'site'}); try again later",
+        )
+
+    # Final fallback: if we haven't already, try gallery-dl for unknown URLs
+    if not result.success and platform is None:
+        logger.info("yt-dlp failed for unknown URL %s; trying gallery-dl as last resort", url)
+        gdl_results = await extract_via_gallery_dl(
+            url, output_dir, cookies_file, platform=None, settings=settings,
+        )
+        if gdl_results:
+            return gdl_results
+        logger.warning(
+            "Both yt-dlp and gallery-dl failed for %s: %s", url, result.error,
+        )
 
     return [result]
 
