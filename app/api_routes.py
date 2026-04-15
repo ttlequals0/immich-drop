@@ -23,7 +23,6 @@ from .url_downloader import (
     download_from_url_multi,
     download_multiple_urls,
     cleanup_download,
-    is_supported_url,
     identify_platform,
     is_direct_image_url,
     SUPPORTED_PATTERNS,
@@ -217,7 +216,8 @@ def create_api_routes(config):
 
     @router.get("/supported-platforms", response_model=SupportedPlatformsResponse)
     async def get_supported_platforms():
-        """Get list of supported platforms for URL downloads"""
+        """Advisory list of platforms with dedicated routing/cookie handling.
+        Any URL is accepted by /upload/url; this list is examples only."""
         return SupportedPlatformsResponse(
             platforms=list(SUPPORTED_PATTERNS.keys()),
             examples={
@@ -227,7 +227,7 @@ def create_api_routes(config):
                 "youtube": "https://www.youtube.com/shorts/ABC123",
                 "twitter": "https://twitter.com/user/status/123456789",
                 "facebook": "https://www.facebook.com/reel/123456789",
-            }
+            },
         )
 
     @router.post("/upload/url", response_model=JobResponse)
@@ -240,17 +240,15 @@ def create_api_routes(config):
         Returns a job ID immediately. Poll /api/upload/url/status/{job_id} for results.
         """
         url = url_request.url.strip()
+        if not url:
+            raise HTTPException(status_code=400, detail="URL is required")
 
-        # Validate URL
         platform = identify_platform(url)
         direct_image = is_direct_image_url(url)
-        if not platform and not direct_image:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported URL. Supported platforms: {', '.join(SUPPORTED_PATTERNS.keys())}. Direct image URLs are also accepted."
-            )
-
-        logger.info("URL upload request: platform=%s direct_image=%s url=%s", platform, direct_image, url)
+        logger.info(
+            "URL upload request: platform=%s direct_image=%s url=%s",
+            platform or "generic", direct_image, url,
+        )
 
         job = create_job(url, url_request.album_name)
         httpx_client = request.app.state.httpx_client
@@ -389,15 +387,9 @@ def create_api_routes(config):
         if len(urls) > 10:
             raise HTTPException(status_code=400, detail="Maximum 10 URLs per request")
 
-        # Validate all URLs first and collect platforms
-        platforms = []
-        for url in urls:
-            if not is_supported_url(url):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unsupported URL: {url}"
-                )
-            platforms.append(identify_platform(url))  # None for direct image URLs
+        # Collect platforms for cookie selection; unknown URLs are allowed through
+        # and attempted by yt-dlp / gallery-dl.
+        platforms = [identify_platform(u) for u in urls]
 
         # Look up cookies - if all URLs are from the same platform, use cookies
         cookies_file = None
