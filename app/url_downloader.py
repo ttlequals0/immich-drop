@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import tempfile
 import asyncio
 import hashlib
@@ -507,6 +508,7 @@ async def download_from_url(
     platform = identify_platform(url)
 
     # Create output directory
+    owned_output_dir = output_dir is None
     if output_dir is None:
         output_dir = tempfile.mkdtemp(prefix="immich_drop_")
 
@@ -591,9 +593,10 @@ async def download_from_url(
         if process.returncode != 0:
             error_msg = stderr.decode().strip() if stderr else "Unknown error"
             logger.error("yt-dlp failed (exit %d): %s", process.returncode, error_msg)
-            # Clean up temp dir if we created it
-            if output_dir and output_dir.startswith(tempfile.gettempdir()):
-                import shutil
+            # Only clean up the temp dir if we created it ourselves; callers
+            # that passed their own output_dir may still need it (e.g. for the
+            # reddit media?url= fallback in download_from_url_multi).
+            if owned_output_dir and output_dir.startswith(tempfile.gettempdir()):
                 shutil.rmtree(output_dir, ignore_errors=True)
             return DownloadResult(
                 success=False,
@@ -817,6 +820,7 @@ async def download_from_url_multi(
         if match:
             embedded_url = unquote(match.group(1))
             logger.info("Extracting embedded image URL from yt-dlp Reddit media error: %s", embedded_url)
+            os.makedirs(output_dir, exist_ok=True)
             result = await download_direct_image(embedded_url, output_dir)
 
     # Surface rate-limit failures with a clearer message

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.3] - 2026-04-15
+
+### Fixed
+- Reddit `media?url=` fallback in `download_from_url_multi` no longer fails with
+  `[Errno 2] No such file or directory` after yt-dlp's own failure path removed
+  the caller-owned temp dir. `download_from_url` now only deletes directories
+  it created itself.
+
 ## [1.6.2] - 2026-04-15
 
 ### Changed
