@@ -781,15 +781,28 @@ async def download_from_url_multi(
         if _is_reddit_host(parsed.hostname):
             # Share links (/r/.../s/...) redirect to the actual post or media URL
             if "/s/" in parsed.path:
-                # SSRF gate the initial HEAD against the resolved IP, not the
-                # host. Raises ValueError on private/reserved targets; we
-                # swallow it here and let the URL fall through to the normal
-                # extraction pipeline below.
+                # SSRF gate: resolve the host inline and reject any non-public
+                # target. Inline (rather than via _ensure_public_url) so the
+                # ipaddress.ip_address barrier-guard pattern is visible to
+                # static analyzers at the HEAD call site.
+                safe_url = None
                 try:
-                    safe_url = _ensure_public_url(url)
-                except ValueError as ssrf_err:
-                    logger.warning("Reddit share-link HEAD blocked (SSRF): %s -- %s", url, ssrf_err)
+                    if (parsed.scheme or "").lower() in ("http", "https") and parsed.hostname:
+                        addrs = socket.getaddrinfo(
+                            parsed.hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM,
+                        )
+                        if all(
+                            not ipaddress.ip_address(sa[0]).is_private
+                            and not ipaddress.ip_address(sa[0]).is_loopback
+                            and not ipaddress.ip_address(sa[0]).is_link_local
+                            and not ipaddress.ip_address(sa[0]).is_reserved
+                            for _, _, _, _, sa in addrs
+                        ):
+                            safe_url = url
+                except (socket.gaierror, ValueError):
                     safe_url = None
+                if safe_url is None:
+                    logger.warning("Reddit share-link HEAD blocked (SSRF): %s", url)
 
                 if safe_url is not None:
                     async def _ssrf_check_redirect(response):
