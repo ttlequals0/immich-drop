@@ -1,10 +1,16 @@
 // Frontend logic (mobile-safe picker; no settings UI)
-const sessionId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2));
+function randomId(){
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  const buf = new Uint8Array(16);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, b => b.toString(16).padStart(2, '0')).join('');
+}
+const sessionId = randomId();
 // Simple device fingerprint: stable per-browser using stored id + UA/screen/timezone
 function getDeviceId(){
   try{
     let id = localStorage.getItem('immich_drop_device_id');
-    if (!id) { id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2)); localStorage.setItem('immich_drop_device_id', id); }
+    if (!id) { id = randomId(); localStorage.setItem('immich_drop_device_id', id); }
     return id;
   }catch{ return 'anon'; }
 }
@@ -88,7 +94,7 @@ function human(bytes){
 }
 
 function addItem(file){
-  const id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2));
+  const id = randomId();
   const it = { id, file, name: file.name, size: file.size, status: 'queued', progress: 0 };
   items.unshift(it);
   render();

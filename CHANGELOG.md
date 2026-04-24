@@ -2,6 +2,77 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.0] - 2026-04-25
+
+### Security
+- **SSRF**: gate the Reddit share-link `HEAD` request through `_validate_url_target`
+  before issuing it; on private/reserved IP, skip the Reddit branch and let the
+  URL fall through to the normal extraction pipeline (CodeQL alert #7).
+- **SSRF (defense in depth)**: explicit ext allowlist on the direct-image
+  download filename so URL/Content-Type cannot influence the on-disk path
+  beyond a known set of safe extensions (CodeQL alerts #5, #6, #25).
+- **Reddit dispatch correctness**: replace `"reddit.com" in hostname` substring
+  checks with exact-match against a 7-host allowlist (`reddit.com`,
+  `www.reddit.com`, `old.reddit.com`, `np.reddit.com`, `i.redd.it`, `v.redd.it`,
+  `redd.it`). Non-matching hosts still flow through to yt-dlp / gallery-dl /
+  direct extraction; this is feature dispatch, not access control (CodeQL
+  alerts #3, #4).
+- **Path injection (chunked uploads)**: `_chunk_dir` now validates `session_id`
+  and `item_id` against a UUID/hex pattern, resolves the joined path, and
+  rejects anything that escapes `CHUNK_ROOT` (CodeQL alerts #12-#24).
+- **Path injection (cookie files)**: `write_cookie_file` and `delete_cookie_file`
+  now reject any platform name not in `PLATFORM_DOMAINS` and verify the
+  resolved path stays inside the cookie directory (CodeQL alerts #8-#11).
+- **Stack-trace exposure**: `/api/upload` and `/api/upload/chunk/complete` no
+  longer return raw `str(e)` to clients; full traceback is preserved in
+  container logs via `logger.exception` (CodeQL alerts #1, #2).
+- **Insecure randomness**: drop `Math.random()` fallback throughout
+  `frontend/app.js`; `randomId()` now uses `crypto.randomUUID()` with a
+  `crypto.getRandomValues` fallback (CodeQL alert #26).
+
+### Build / image hardening
+- Replace `apt-get install ffmpeg` with a static ffmpeg/ffprobe binary copied
+  from `mwader/static-ffmpeg:7.1`. Drops the entire mesa / libssh / libcups /
+  libgbm / libmbedcrypto / libsystemd cascade pulled in by the debian
+  meta-package, every one of which had unpatched HIGH/CRITICAL CVEs in
+  trixie. Trivy OS-layer count: 38 -> 6 (0 critical).
+- `apt-get upgrade -y` is now run during the image build to pull any debian
+  security patches that landed after `python:3.11-slim` was published.
+- Pip + setuptools + wheel are upgraded before the requirements install so
+  the `wheel` and `jaraco.context` HIGH CVEs introduced by stale build tools
+  no longer ship in the image.
+- Add `venv/`, `.benchmarks/`, `.playwright-mcp/`, `.claude/`, and `.github/`
+  to `.dockerignore`. The local development venv was previously being
+  COPYed into the image, baking in stale package versions that bypassed the
+  `pip install -r requirements.txt` step and confused trivy.
+
+### Known unfixed
+- `curl_cffi 0.14.0` (CVE-2026-33752, redirect-based SSRF). yt-dlp 2026.3.17
+  hard-pins `curl-cffi<0.15`. Mitigated in this codebase by the
+  `_validate_redirect` event hook on the httpx client in `download_direct_image`
+  and the `_ssrf_check_redirect` hook for Reddit share-link resolution; both
+  call `_validate_url_target` on every redirect target. Tracked by the new
+  daily Dependabot `url-extractors` group; will clear automatically when
+  yt-dlp bumps its pin.
+- 6 debian HIGH (libncursesw6, libtinfo6, ncurses-base, libsystemd0, libudev1)
+  with no upstream fix in trixie. All transitive deps of the `python:3.11-slim`
+  base image; not used at runtime by our application.
+
+### Dependencies
+- Bump pillow 11.3.0 -> 12.2.0, python-dotenv 1.1.1 -> 1.2.2,
+  python-multipart 0.0.20 -> 0.0.26, requests 2.32.5 -> 2.33.0,
+  starlette 0.47.3 -> 0.49.1, urllib3 2.5.0 -> 2.6.3. Closes the 10 open
+  Dependabot alerts (covers Dependabot PR #10).
+- Bump fastapi 0.116.1 -> 0.136.1 to track starlette 0.49.x; the previous
+  fastapi pin required starlette < 0.48.0 and would have blocked the
+  starlette security bump on its own.
+- Pin `yt-dlp[default,curl-cffi]==2026.3.17` (canonical extra name; the
+  underscore form `curl_cffi` is no longer published) and
+  `gallery-dl==1.32.0` so Dependabot can track them.
+- Add `.github/dependabot.yml`: daily `url-extractors` group for yt-dlp and
+  gallery-dl, weekly grouped Python minor/patch bumps, plus weekly tracking
+  for the Dockerfile base image and any future GitHub Actions.
+
 ## [1.6.3] - 2026-04-15
 
 ### Fixed

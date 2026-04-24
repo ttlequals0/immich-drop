@@ -112,6 +112,28 @@ def get_cookie_dir() -> str:
     return cookie_dir
 
 
+def _safe_platform(platform: str) -> str:
+    """Reject platform names that aren't in the allowlist or that contain
+    path separators / dots. Raises ValueError for callers to surface as 400.
+    """
+    p = (platform or "").strip().lower()
+    if not p or p not in PLATFORM_DOMAINS:
+        raise ValueError(f"unsupported platform: {platform!r}")
+    return p
+
+
+def _platform_filepath(platform: str) -> str:
+    """Build a cookie filepath that is provably inside the cookie directory."""
+    p = _safe_platform(platform)
+    base = Path(get_cookie_dir()).resolve()
+    target = (base / f"{p}.txt").resolve()
+    try:
+        target.relative_to(base)
+    except ValueError:
+        raise ValueError(f"path escape: {platform!r}")
+    return str(target)
+
+
 def write_cookie_file(platform: str, cookie_string: str) -> str:
     """
     Write a Netscape format cookie file for the given platform.
@@ -123,11 +145,10 @@ def write_cookie_file(platform: str, cookie_string: str) -> str:
     Returns:
         Path to the written cookie file
     """
+    p = _safe_platform(platform)
+    filepath = _platform_filepath(p)
     cookies = parse_cookie_string(cookie_string)
-    content = to_netscape_format(platform, cookies)
-
-    cookie_dir = get_cookie_dir()
-    filepath = os.path.join(cookie_dir, f"{platform}.txt")
+    content = to_netscape_format(p, cookies)
 
     with open(filepath, "w") as f:
         f.write(content)
@@ -151,8 +172,10 @@ def delete_cookie_file(platform: str) -> bool:
     Returns:
         True if deleted, False if not found
     """
-    cookie_dir = get_cookie_dir()
-    filepath = os.path.join(cookie_dir, f"{platform}.txt")
+    try:
+        filepath = _platform_filepath(platform)
+    except ValueError:
+        return False
 
     if os.path.exists(filepath):
         os.remove(filepath)

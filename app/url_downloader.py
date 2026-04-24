@@ -124,6 +124,27 @@ DIRECT_IMAGE_DOMAINS = {'i.redd.it', 'i.imgur.com', 'pbs.twimg.com', 'preview.re
 
 MAX_DIRECT_IMAGE_SIZE = 100 * 1024 * 1024  # 100MB
 
+# Hostnames that route into the Reddit-specific extraction branch (share-link
+# resolution and /media wrapper unwrapping). Exact-match dispatch only -- this
+# is NOT an access gate, just feature dispatch. URLs that don't match still
+# flow through to yt-dlp / gallery-dl / direct extraction like any other URL.
+REDDIT_HOSTS = {
+    "reddit.com", "www.reddit.com",
+    "old.reddit.com", "np.reddit.com",
+    "i.redd.it", "v.redd.it", "redd.it",
+}
+
+
+def _is_reddit_host(hostname: Optional[str]) -> bool:
+    return bool(hostname) and hostname.lower() in REDDIT_HOSTS
+
+
+# Extensions allowed when composing the on-disk filename for a direct-image
+# download. Anything outside this set is clamped to .jpg before joining the
+# path. Derived from DIRECT_IMAGE_EXTENSIONS plus video extensions yt-dlp may
+# legitimately produce.
+SAFE_DIRECT_EXTS = DIRECT_IMAGE_EXTENSIONS | {'.mp4', '.mov', '.webm', '.mkv'}
+
 
 def _is_private_ip(addr: str) -> bool:
     """Check if an IP address is private, loopback, link-local, or otherwise reserved."""
@@ -302,6 +323,11 @@ async def download_direct_image(
                     ext = mime_to_ext.get(ct, ".jpg")
 
                 content_type = CONTENT_TYPE_MAP.get(ext, 'application/octet-stream')
+
+            # Clamp ext to the safe allowlist before composing a filename.
+            # This forecloses any path-traversal dataflow from URL/Content-Type.
+            if ext.lower() not in SAFE_DIRECT_EXTS:
+                ext = ".jpg"
 
             # Generate filename from URL hash
             url_hash = hashlib.sha1(url.encode()).hexdigest()[:12]
@@ -740,38 +766,45 @@ async def download_from_url_multi(
     # Resolve Reddit share links and media redirects to actual URLs
     try:
         parsed = urlparse(url)
-        if parsed.hostname and "reddit.com" in parsed.hostname:
+        if _is_reddit_host(parsed.hostname):
             # Share links (/r/.../s/...) redirect to the actual post or media URL
             if "/s/" in parsed.path:
-                async def _ssrf_check_redirect(response):
-                    if response.is_redirect:
-                        location = response.headers.get("location", "")
-                        if location:
-                            err = _validate_url_target(location)
-                            if err:
-                                raise httpx.HTTPStatusError(
-                                    f"Redirect blocked (SSRF): {err}",
-                                    request=response.request, response=response,
-                                )
+                # SSRF gate the initial HEAD against the resolved IP, not the host.
+                # Skip the Reddit branch on failure; URL falls through to the
+                # normal extraction pipeline below.
+                pre_err = _validate_url_target(url)
+                if pre_err:
+                    logger.warning("Reddit share-link HEAD blocked (SSRF): %s -- %s", url, pre_err)
+                else:
+                    async def _ssrf_check_redirect(response):
+                        if response.is_redirect:
+                            location = response.headers.get("location", "")
+                            if location:
+                                err = _validate_url_target(location)
+                                if err:
+                                    raise httpx.HTTPStatusError(
+                                        f"Redirect blocked (SSRF): {err}",
+                                        request=response.request, response=response,
+                                    )
 
-                async with httpx.AsyncClient(
-                    follow_redirects=True,
-                    timeout=15.0,
-                    event_hooks={"response": [_ssrf_check_redirect]},
-                ) as client:
-                    head_resp = await client.head(url, headers={"User-Agent": BROWSER_USER_AGENT})
-                    resolved = str(head_resp.url)
-                    if not resolved or resolved == url or "/s/" in urlparse(resolved).path:
-                        return [DownloadResult(
-                            success=False,
-                            error=f"Reddit share link did not resolve to a post: {url}",
-                        )]
-                    logger.info("Resolved Reddit share link: %s -> %s", url, resolved)
-                    url = resolved
-                    parsed = urlparse(url)
+                    async with httpx.AsyncClient(
+                        follow_redirects=True,
+                        timeout=15.0,
+                        event_hooks={"response": [_ssrf_check_redirect]},
+                    ) as client:
+                        head_resp = await client.head(url, headers={"User-Agent": BROWSER_USER_AGENT})
+                        resolved = str(head_resp.url)
+                        if not resolved or resolved == url or "/s/" in urlparse(resolved).path:
+                            return [DownloadResult(
+                                success=False,
+                                error=f"Reddit share link did not resolve to a post: {url}",
+                            )]
+                        logger.info("Resolved Reddit share link: %s -> %s", url, resolved)
+                        url = resolved
+                        parsed = urlparse(url)
 
             # Media wrapper (reddit.com/media?url=<encoded-image-url>)
-            if parsed.hostname and "reddit.com" in parsed.hostname and parsed.path.rstrip("/") == "/media":
+            if _is_reddit_host(parsed.hostname) and parsed.path.rstrip("/") == "/media":
                 params = parse_qs(parsed.query)
                 if "url" in params:
                     embedded_url = unquote(params["url"][0])

@@ -6,12 +6,23 @@ WORKDIR /immich_drop
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install system dependencies (ffmpeg for yt-dlp video processing)
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+# Pull in the latest debian security patches.
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Static ffmpeg binary -- avoids dragging in mesa, libssh, libcups, libgbm,
+# systemd, libmbedcrypto, etc. via the debian ffmpeg meta-package, every one
+# of which has unpatched HIGH/CRITICAL CVEs in trixie. yt-dlp only uses the
+# ffmpeg/ffprobe binaries, so a static build is functionally equivalent.
+COPY --from=mwader/static-ffmpeg:7.1 /ffmpeg /usr/local/bin/ffmpeg
+COPY --from=mwader/static-ffmpeg:7.1 /ffprobe /usr/local/bin/ffprobe
 
 # Install Python deps
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt \
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r /app/requirements.txt \
     && pip install --no-cache-dir python-multipart
 
 # Copy app code
