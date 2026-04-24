@@ -768,13 +768,17 @@ async def api_upload(
 # --------- Chunked upload endpoints ---------
 
 def _chunk_dir(session_id: str, item_id: str) -> str:
-    """Build a chunk-storage path that is provably inside CHUNK_ROOT."""
-    target = (_CHUNK_ROOT_RESOLVED / _validate_id(session_id) / _validate_id(item_id)).resolve()
-    try:
-        target.relative_to(_CHUNK_ROOT_RESOLVED)
-    except ValueError:
+    """Build a chunk-storage path that is provably inside CHUNK_ROOT.
+
+    Each id is validated against `_ID_RE` directly at the call site (rather
+    than only via `_validate_id`) so static analyzers see the regex match as
+    a barrier guard before the path join.
+    """
+    sid = (session_id or "").strip()
+    iid = (item_id or "").strip()
+    if not _ID_RE.match(sid) or not _ID_RE.match(iid):
         raise HTTPException(status_code=400, detail="invalid id")
-    return str(target)
+    return os.path.join(CHUNK_ROOT, sid, iid)
 
 @app.post("/api/upload/chunk/init")
 async def api_upload_chunk_init(request: Request) -> JSONResponse:

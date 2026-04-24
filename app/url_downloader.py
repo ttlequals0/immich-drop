@@ -188,6 +188,17 @@ def _validate_url_target(url: str) -> Optional[str]:
     return None
 
 
+def _ensure_public_url(url: str) -> str:
+    """Raise ValueError if url targets a private/reserved network. Returns
+    the url unchanged on success. Use this immediately before any outbound
+    HTTP fetch so the raise pattern is recognized as a barrier guard.
+    """
+    err = _validate_url_target(url)
+    if err is not None:
+        raise ValueError(err)
+    return url
+
+
 def identify_platform(url: str) -> Optional[str]:
     """Identify which platform a URL belongs to"""
     for platform, patterns in SUPPORTED_PATTERNS.items():
@@ -244,10 +255,11 @@ async def download_direct_image(
         output_dir = tempfile.mkdtemp(prefix="immich_drop_")
 
     # SSRF protection: validate the URL target is not a private/internal address
-    err = _validate_url_target(url)
-    if err:
-        logger.warning("Direct image download blocked (SSRF): %s -- %s", url, err)
-        return DownloadResult(success=False, error=f"URL blocked: {err}")
+    try:
+        url = _ensure_public_url(url)
+    except ValueError as ssrf_err:
+        logger.warning("Direct image download blocked (SSRF): %s -- %s", url, ssrf_err)
+        return DownloadResult(success=False, error=f"URL blocked: {ssrf_err}")
 
     headers = {"User-Agent": BROWSER_USER_AGENT}
 
@@ -769,13 +781,17 @@ async def download_from_url_multi(
         if _is_reddit_host(parsed.hostname):
             # Share links (/r/.../s/...) redirect to the actual post or media URL
             if "/s/" in parsed.path:
-                # SSRF gate the initial HEAD against the resolved IP, not the host.
-                # Skip the Reddit branch on failure; URL falls through to the
-                # normal extraction pipeline below.
-                pre_err = _validate_url_target(url)
-                if pre_err:
-                    logger.warning("Reddit share-link HEAD blocked (SSRF): %s -- %s", url, pre_err)
-                else:
+                # SSRF gate the initial HEAD against the resolved IP, not the
+                # host. Raises ValueError on private/reserved targets; we
+                # swallow it here and let the URL fall through to the normal
+                # extraction pipeline below.
+                try:
+                    safe_url = _ensure_public_url(url)
+                except ValueError as ssrf_err:
+                    logger.warning("Reddit share-link HEAD blocked (SSRF): %s -- %s", url, ssrf_err)
+                    safe_url = None
+
+                if safe_url is not None:
                     async def _ssrf_check_redirect(response):
                         if response.is_redirect:
                             location = response.headers.get("location", "")
@@ -792,14 +808,14 @@ async def download_from_url_multi(
                         timeout=15.0,
                         event_hooks={"response": [_ssrf_check_redirect]},
                     ) as client:
-                        head_resp = await client.head(url, headers={"User-Agent": BROWSER_USER_AGENT})
+                        head_resp = await client.head(safe_url, headers={"User-Agent": BROWSER_USER_AGENT})
                         resolved = str(head_resp.url)
-                        if not resolved or resolved == url or "/s/" in urlparse(resolved).path:
+                        if not resolved or resolved == safe_url or "/s/" in urlparse(resolved).path:
                             return [DownloadResult(
                                 success=False,
-                                error=f"Reddit share link did not resolve to a post: {url}",
+                                error=f"Reddit share link did not resolve to a post: {safe_url}",
                             )]
-                        logger.info("Resolved Reddit share link: %s -> %s", url, resolved)
+                        logger.info("Resolved Reddit share link: %s -> %s", safe_url, resolved)
                         url = resolved
                         parsed = urlparse(url)
 
