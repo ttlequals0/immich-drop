@@ -27,6 +27,6 @@ typing_extensions==4.15.0
 urllib3==2.6.3
 uvicorn==0.35.0
 watchfiles==1.1.0
-websockets==15.0.1
+websockets==16.0
 yt-dlp[default,curl-cffi]==2026.3.17
 gallery-dl==1.32.0
