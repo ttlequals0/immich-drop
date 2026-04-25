@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.1] - 2026-04-25
+
+### Dependencies (auto-bumped via Dependabot)
+- Group `python-deps`: anyio 4.10.0 -> 4.13.0, charset-normalizer 3.4.3 ->
+  3.4.7, click 8.2.1 -> 8.3.3, httptools 0.6.4 -> 0.7.1, idna 3.10 -> 3.13,
+  pydantic 2.11.7 -> 2.13.3, pydantic-core 2.33.2 -> 2.46.3, PyYAML 6.0.2 ->
+  6.0.3, requests 2.33.0 -> 2.33.1, uvicorn 0.35.0 -> 0.46.0,
+  watchfiles 1.1.0 -> 1.1.1 (PR #13).
+- starlette 0.49.1 -> 1.0.0 (PR #14).
+- certifi 2025.8.3 -> 2026.4.22 (PR #15).
+- websockets 15.0.1 -> 16.0 (PR #16).
+
 ## [1.7.0] - 2026-04-25
 
 ### Security
