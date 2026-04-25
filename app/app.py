@@ -15,16 +15,18 @@ import io
 import json
 import hashlib
 import os
+import re
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import httpx
 import requests
 from requests_toolbelt.multipart.encoder import MultipartEncoder, MultipartEncoderMonitor
 import logging
-from fastapi import FastAPI, UploadFile, WebSocket, WebSocketDisconnect, Request, Form
+from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -86,6 +88,7 @@ try:
     os.makedirs(CHUNK_ROOT, exist_ok=True)
 except Exception:
     pass
+_CHUNK_ROOT_RESOLVED = Path(CHUNK_ROOT).resolve()
 
 # Album cache
 ALBUM_ID: Optional[str] = None
@@ -206,6 +209,22 @@ def sha1_hex(file_bytes: bytes) -> str:
     h = hashlib.sha1()
     h.update(file_bytes)
     return h.hexdigest()
+
+_ID_RE = re.compile(r"^[0-9a-fA-F][0-9a-fA-F\-]{0,63}$")
+
+
+def _validate_id(value: Optional[str]) -> str:
+    """Reject any session/item id that isn't UUID or short hex.
+
+    Frontend now generates UUIDs via crypto.randomUUID(). We accept the legacy
+    hex+dash shape for in-flight uploads from old tabs but block anything with
+    path separators, dots, or other special characters.
+    """
+    v = (value or "").strip()
+    if not v or not _ID_RE.match(v):
+        raise HTTPException(status_code=400, detail="invalid id")
+    return v
+
 
 def sanitize_filename(name: Optional[str]) -> str:
     """Return a minimally sanitized filename that preserves the original name.
@@ -739,18 +758,27 @@ async def api_upload(
                     msg = r.text
                 await send_progress(session_id, item_id, "error", 100, msg)
                 return JSONResponse({"error": msg}, status_code=400)
-        except Exception as e:
-            await send_progress(session_id, item_id, "error", 100, str(e))
-            return JSONResponse({"error": str(e)}, status_code=500)
+        except Exception:
+            logger.exception("upload failed (session=%s item=%s)", session_id, item_id)
+            await send_progress(session_id, item_id, "error", 100, "upload failed")
+            return JSONResponse({"error": "upload failed"}, status_code=500)
 
     return await do_upload()
 
 # --------- Chunked upload endpoints ---------
 
 def _chunk_dir(session_id: str, item_id: str) -> str:
-    safe_session = session_id.replace('/', '_')
-    safe_item = item_id.replace('/', '_')
-    return os.path.join(CHUNK_ROOT, safe_session, safe_item)
+    """Build a chunk-storage path that is provably inside CHUNK_ROOT.
+
+    Each id is validated against `_ID_RE` directly at the call site (rather
+    than only via `_validate_id`) so static analyzers see the regex match as
+    a barrier guard before the path join.
+    """
+    sid = (session_id or "").strip()
+    iid = (item_id or "").strip()
+    if not _ID_RE.match(sid) or not _ID_RE.match(iid):
+        raise HTTPException(status_code=400, detail="invalid id")
+    return os.path.join(CHUNK_ROOT, sid, iid)
 
 @app.post("/api/upload/chunk/init")
 async def api_upload_chunk_init(request: Request) -> JSONResponse:
@@ -1103,9 +1131,10 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
                 msg = r.text
             await send_progress(session_id_local, item_id_local, "error", 100, msg)
             return JSONResponse({"error": msg}, status_code=400)
-    except Exception as e:
-        await send_progress(session_id_local, item_id_local, "error", 100, str(e))
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except Exception:
+        logger.exception("chunk upload failed (session=%s item=%s)", session_id_local, item_id_local)
+        await send_progress(session_id_local, item_id_local, "error", 100, "upload failed")
+        return JSONResponse({"error": "upload failed"}, status_code=500)
 
 @app.post("/api/album/reset")
 async def api_album_reset() -> dict:
