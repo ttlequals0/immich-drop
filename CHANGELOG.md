@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.2] - 2026-06-14
+
+### Security
+- Resolves 5 Dependabot alerts (all in requirements.txt):
+  - **python-multipart** 0.0.26 -> 0.0.29: DoS via unbounded multipart part
+    headers (high, alert #11).
+  - **urllib3** 2.6.3 -> 2.7.0: sensitive headers forwarded across origins in
+    proxied low-level redirects, and decompression-bomb safeguards bypassed in
+    the streaming API (high, alerts #12, #13).
+  - **idna** 3.13 -> 3.16: idna.encode() bypass of the CVE-2024-3651 fix
+    (medium, alert #14).
+  - **starlette** 1.0.0 -> 1.1.0: missing Host header validation poisoning
+    request.url.path and bypassing path-based checks (medium, alert #15).
+
+### Dependencies (auto-bumped via Dependabot)
+- Group `python-deps`: certifi 2026.4.22 -> 2026.5.20, click 8.3.3 -> 8.4.1,
+  fastapi 0.136.1 -> 0.136.3, httptools 0.7.1 -> 0.8.0, idna 3.13 -> 3.16,
+  pydantic 2.13.3 -> 2.13.4, pydantic-core 2.46.3 -> 2.46.4,
+  python-multipart 0.0.26 -> 0.0.29, requests 2.33.1 -> 2.34.2,
+  starlette 1.0.0 -> 1.1.0, urllib3 2.6.3 -> 2.7.0, uvicorn 0.46.0 -> 0.48.0,
+  watchfiles 1.1.1 -> 1.2.0 (consolidates PRs #21, #24, #28, #32, #33).
+  pydantic-core pinned to 2.46.4 (not the 2.47.0 Dependabot proposed) to match
+  pydantic 2.13.4's exact dependency pin and resolve the install conflict.
+- Group `url-extractors`: yt-dlp 2026.3.17 -> 2026.6.9,
+  gallery-dl 1.32.0 -> 1.32.3 (consolidates PR #34).
+
+### CI
+- Removed the `github-actions` ecosystem from `.github/dependabot.yml`. The
+  repo has no workflow files (CodeQL and dependency submission run as
+  GitHub-managed dynamic workflows), so the github-actions updater aborted
+  every run with "/.github/workflows/<anything>.yml not found".
+
 ## [1.7.1] - 2026-04-25
 
 ### Dependencies (auto-bumped via Dependabot)
