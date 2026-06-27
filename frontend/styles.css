@@ -341,7 +341,9 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
     margin-top: 6px;
   }
   .data-table--responsive td.td-actions::before { content: ''; min-width: 0; }
-  .data-table--responsive td.td-checkbox { display: none; }
+  .data-table--responsive td.td-checkbox { display: flex; align-items: center; }
+  .data-table--responsive td.td-checkbox::before { content: ''; min-width: 0; }
+  .data-table--responsive td.td-checkbox input[type="checkbox"] { display: inline-block; margin: 0; }
   .data-table--responsive td.td-name .input { font-size: 0.875rem; font-weight: 500; }
 }
 
