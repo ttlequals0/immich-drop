@@ -39,6 +39,13 @@
     updateThemeIcon();
   }
 
+  function showBanner(text, kind='ok'){
+    if(!banner) return;
+    banner.textContent = text;
+    banner.className = 'banner ' + (kind==='ok' ? 'banner--ok' : kind==='warn' ? 'banner--warn' : 'banner--err');
+    setTimeout(() => banner.classList.add('hidden'), 3000);
+  }
+
   function wire(){
     const btnTheme = doc.getElementById('btnTheme');
     const btnPing = doc.getElementById('btnPing');
