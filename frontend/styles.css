@@ -250,8 +250,14 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
 }
 .form-row--2 { grid-template-columns: 1fr 1fr; }
 .form-row--3 { grid-template-columns: 1fr 1fr 1fr; }
-@media (max-width: 600px) {
-  .form-row--2, .form-row--3 { grid-template-columns: 1fr; }
+
+@media (max-width: 700px) {
+  .form-row,
+  .form-row--2,
+  .form-row--3 {
+    grid-template-columns: 1fr !important;
+    align-items: start;
+  }
 }
 
 /* --- Dropzone --- */
