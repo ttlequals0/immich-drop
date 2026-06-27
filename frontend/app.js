@@ -46,26 +46,41 @@ const STATUS_ORDER = { queued: 0, checking: 1, uploading: 2, duplicate: 3, done:
 const FINAL_STATES = new Set(['done','duplicate','error']);
 
 // --- Dark mode ---
-function initDarkMode() {
-  const stored = localStorage.getItem('theme');
-  if (stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-    document.documentElement.classList.add('dark');
-  }
+const doc = document;
+const root = document.documentElement;
+let themeMode = 'system';
+const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+
+function applyTheme(mode){
+  const useDark = mode === 'dark' || (mode === 'system' && prefersDark && prefersDark.matches);
+  root.classList.toggle('dark', useDark);
+  root.dataset.theme = mode;
+}
+
+function updateThemeIcon(){
+  const light = doc.getElementById('iconLight');
+  const dark = doc.getElementById('iconDark');
+  const system = doc.getElementById('iconSystem');
+  if (light) light.classList.toggle('hidden', themeMode !== 'light');
+  if (dark) dark.classList.toggle('hidden', themeMode !== 'dark');
+  if (system) system.classList.toggle('hidden', themeMode !== 'system');
+}
+
+function initDarkMode(){
+  themeMode = 'system';
+  applyTheme(themeMode);
   updateThemeIcon();
+  if (prefersDark && prefersDark.addEventListener) {
+    prefersDark.addEventListener('change', () => {
+      if (themeMode === 'system') applyTheme('system');
+    });
+  }
 }
 
 function toggleDarkMode() {
-  const isDark = document.documentElement.classList.toggle('dark');
-  localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  themeMode = (themeMode === 'dark') ? 'system' : (themeMode === 'system') ? 'light' : 'dark';
+  applyTheme(themeMode);
   updateThemeIcon();
-}
-
-function updateThemeIcon() {
-  const isDark = document.documentElement.classList.contains('dark');
-  const light = document.getElementById('iconLight');
-  const dark = document.getElementById('iconDark');
-  if (light && light.classList) light.classList.toggle('hidden', !isDark);
-  if (dark && dark.classList) dark.classList.toggle('hidden', isDark);
 }
 
 initDarkMode();
