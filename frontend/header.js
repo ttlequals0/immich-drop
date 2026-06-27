@@ -4,37 +4,39 @@
   const root = doc.documentElement;
   const banner = doc.getElementById('topBanner');
 
+  let themeMode = 'system';
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+
+  function applyTheme(mode){
+    const useDark = mode === 'dark' || (mode === 'system' && prefersDark && prefersDark.matches);
+    root.classList.toggle('dark', useDark);
+    root.dataset.theme = mode;
+  }
+
   function updateThemeIcon(){
-    const isDark = root.classList.contains('dark');
     const light = doc.getElementById('iconLight');
     const dark = doc.getElementById('iconDark');
-    if (light && light.classList) light.classList.toggle('hidden', !isDark);
-    if (dark && dark.classList) dark.classList.toggle('hidden', isDark);
+    const system = doc.getElementById('iconSystem');
+    if (light) light.classList.toggle('hidden', themeMode !== 'light');
+    if (dark) dark.classList.toggle('hidden', themeMode !== 'dark');
+    if (system) system.classList.toggle('hidden', themeMode !== 'system');
   }
 
   function initDarkMode(){
-    try{
-      const stored = localStorage.getItem('theme');
-      if (stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        root.classList.add('dark');
-      } else {
-        root.classList.remove('dark');
-      }
-    }catch{}
+    themeMode = 'system';
+    applyTheme(themeMode);
     updateThemeIcon();
+    if (prefersDark && prefersDark.addEventListener) {
+      prefersDark.addEventListener('change', () => {
+        if (themeMode === 'system') applyTheme('system');
+      });
+    }
   }
 
-  function toggleDarkMode(){
-    const isDark = root.classList.toggle('dark');
-    try{ localStorage.setItem('theme', isDark ? 'dark' : 'light'); }catch{}
+  function toggleDarkMode() {
+    themeMode = (themeMode === 'dark') ? 'system' : (themeMode === 'system') ? 'light' : 'dark';
+    applyTheme(themeMode);
     updateThemeIcon();
-  }
-
-  function showBanner(text, kind='ok'){
-    if(!banner) return;
-    banner.textContent = text;
-    banner.className = 'banner ' + (kind==='ok' ? 'banner--ok' : kind==='warn' ? 'banner--warn' : 'banner--err');
-    setTimeout(() => banner.classList.add('hidden'), 3000);
   }
 
   function wire(){
