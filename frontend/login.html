@@ -42,7 +42,7 @@
         </div>
         <div class="flex items-center justify-between gap-2 mt-4">
           <button class="btn btn--primary" type="submit">Login</button>
-          <a href="/" class="btn">Back to uploader</a>
+          <a id="backToUploader" href="/" class="btn hidden">Back to uploader</a>
         </div>
       </form>
     </div>
@@ -78,6 +78,10 @@
         const versionEl = document.getElementById('version-link');
         if (versionEl && data.version) {
           versionEl.textContent = 'immich-drop v' + data.version;
+        }
+        const backToUploader = document.getElementById('backToUploader');
+        if (backToUploader && data.public_upload_page_enabled) {
+          backToUploader.classList.remove('hidden');
         }
       })
       .catch(() => {});
