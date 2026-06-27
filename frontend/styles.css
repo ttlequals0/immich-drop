@@ -192,6 +192,12 @@ a { color: inherit; }
   .btn--sm {
     padding: 8px 12px;
   }
+
+  #btnCreateAlbum,
+  #btnCreate,
+  #btnSaveCookie {
+    width: 100%;
+  }
 }
 
 /* --- Cards / Sections --- */
