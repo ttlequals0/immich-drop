@@ -141,6 +141,16 @@
     return '<span class="badge">'+(row.active?'Active':'Inactive')+'</span>';
   }
 
+  // Invite uploader size formatter (bytes to human-readable)
+  function formatBytes(bytes) {
+    const b = Number(bytes || 0);
+    if (!b) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(b) / Math.log(1024));
+    const value = b / Math.pow(1024, i);
+    return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+  }
+
   function renderInvites(){
     var rows = '';
     for (var i=0; i<INVITES.length; i++){
@@ -235,7 +245,7 @@
           if (items.length){
             var tbl = '<table class="data-table"><thead><tr><th>When</th><th>IP</th><th>Filename</th><th>Size</th></tr></thead><tbody>';
             items.forEach(function(it){
-              tbl += '<tr><td>'+escAttr(new Date(it.uploadedAt).toLocaleString())+'</td><td>'+escAttr(it.ip)+'</td><td>'+escAttr(it.filename)+'</td><td>'+escAttr((it.size||0).toLocaleString())+'</td></tr>';
+              tbl += '<tr><td>'+escAttr(new Date(it.uploadedAt).toLocaleString())+'</td><td>'+escAttr(it.ip)+'</td><td>'+escAttr(it.filename)+'</td><td>'+escAttr(formatBytes(it.size||0).toLocaleString())+'</td></tr>';
             });
             tbl += '</tbody></table>';
             body.innerHTML = tbl;
