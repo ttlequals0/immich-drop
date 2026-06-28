@@ -70,13 +70,16 @@
     var albumId = null, albumName = null;
     if (!albumSelectWrap.classList.contains('hidden') && albumSelect.value) {
       albumId = albumSelect.value;
+      var selectedOption = albumSelect.options[albumSelect.selectedIndex];
+      albumName = selectedOption ? selectedOption.text : null;
     } else if (albumInput.value.trim()) {
       albumName = albumInput.value.trim();
     }
     var payload = { maxUses: parseInt(usage.value, 10) };
     var d = days.value.trim();
     if (d) payload.expiresDays = parseInt(d, 10);
-    if (albumId) payload.albumId = albumId; else if (albumName) payload.albumName = albumName;
+    if (albumName) { payload.albumName = albumName; }
+    if (albumId) { payload.albumId = albumId; }
     var pw = (passwordInput && passwordInput.value) ? passwordInput.value.trim() : '';
     if (pw) payload.password = pw;
     try{
