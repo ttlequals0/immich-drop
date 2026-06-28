@@ -379,6 +379,17 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
   .data-table--responsive td.td-name .input { font-size: 0.875rem; font-weight: 500; }
 }
 
+/* Mobile search and sort stay on same line */
+@media (max-width: 700px) {
+  #searchQ {
+    min-width: 100px !important;
+  }
+  #sortSel {
+    flex-shrink: 0;
+    width: auto;
+  }
+}
+
 /* --- Status badges --- */
 .badge {
   display: inline-flex;
