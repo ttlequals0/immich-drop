@@ -1654,28 +1654,32 @@ async def api_invites_delete(request: Request) -> JSONResponse:
         body = {}
     tokens = list((body or {}).get("tokens") or [])
     if not tokens:
-        return JSONResponse({"error": "missing_tokens"}, status_code=400)
+        return JSONResponse({"error": "no_tokens"}, status_code=400)
     owner_user_id = str(request.session.get("userId") or "")
     try:
         conn = sqlite3.connect(SETTINGS.state_db)
         cur = conn.cursor()
-        placeholders = ",".join(["?"] * len(tokens))
-        # Delete upload events first to avoid orphan rows
+        
+        # Build placeholders for the tokens list
+        placeholders = ",".join(["?" for _ in tokens])
+        
+        # Delete from invite_uploads first (if table exists)
+        try:
+            cur.execute(f"DELETE FROM invite_uploads WHERE invite_token IN ({placeholders})", tokens)
+        except Exception:
+            pass  # Table might not exist
+
+        # Delete from invites where owned by this user
         cur.execute(
-            f"DELETE FROM upload_events WHERE token IN ({placeholders})",
-            (*tokens,)
+            f"DELETE FROM invites WHERE token IN ({placeholders}) AND owner_user_id = ?",
+            tokens + [owner_user_id]
         )
-        # Delete invites scoped to owner
-        cur.execute(
-            f"DELETE FROM invites WHERE owner_user_id = ? AND token IN ({placeholders})",
-            (owner_user_id, *tokens)
-        )
+        changed = cur.rowcount
         conn.commit()
-        changed = conn.total_changes
         conn.close()
     except Exception as e:
-        logger.exception("Bulk delete failed: %s", e)
-        return JSONResponse({"error": "db_error"}, status_code=500)
+        logger.exception("Failed to delete invites: %s", e)
+        return JSONResponse({"error": "delete_failed"}, status_code=500)
     return JSONResponse({"ok": True, "deleted": changed})
 
 @app.get("/api/invite/{token}/uploads")
