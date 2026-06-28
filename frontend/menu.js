@@ -90,6 +90,8 @@
       if (j && j.token) { try { LAST_CREATED_TOKEN = j.token; } catch(e2){} }
       try { await loadInvites(); } catch(e2){}
     }catch(err){ showResult('err'); }
+    days.value = '';
+    passwordInput.value = '';
   };
 
   btnCopy.onclick = function(){
