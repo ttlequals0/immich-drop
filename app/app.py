@@ -1734,6 +1734,21 @@ async def api_invite_info(token: str, request: Request) -> JSONResponse:
     if not row:
         return JSONResponse({"error": "not_found"}, status_code=404)
     _, album_id, album_name, max_uses, used_count, expires_at, claimed, claimed_at, password_hash, disabled, link_name = row
+    
+    # If we have an album_id but no album_name, try to fetch it from Immich
+    if album_id and not album_name:
+        try:
+            client = app.state.httpx_client
+            r = await client.get(f"{SETTINGS.normalized_base_url}/albums", headers=immich_headers(request), timeout=10.0)
+            if r.status_code == 200:
+                albums = r.json()
+                for album in albums:
+                    if album.get("id") == album_id:
+                        album_name = album.get("albumName")
+                        break
+        except Exception as e:
+            logger.exception("Error fetching album name: %s", e)
+    
     # compute remaining
     remaining = None
     try:
@@ -1742,16 +1757,17 @@ async def api_invite_info(token: str, request: Request) -> JSONResponse:
     except Exception:
         remaining = None
     # compute state flags
+    one_time = False
     try:
-        one_time = (int(max_uses) == 1)
+        one_time = int(max_uses) == 1 if max_uses is not None else False
     except Exception:
-        one_time = False
+        pass
     expired = False
     if expires_at:
         try:
             expired = datetime.utcnow() > datetime.fromisoformat(expires_at)
         except Exception:
-            expired = False
+            pass
     deactivated = False
     reason = None
     if one_time and claimed:
@@ -1776,9 +1792,9 @@ async def api_invite_info(token: str, request: Request) -> JSONResponse:
     authorized = False
     try:
         ia = request.session.get("inviteAuth") or {}
-        authorized = bool(ia.get(token))
+        authorized = ia.get(token, False)
     except Exception:
-        authorized = False
+        pass
     return JSONResponse({
         "token": token,
         "albumId": album_id,
