@@ -15,7 +15,6 @@ class Settings:
     """App settings loaded from environment variables (.env)."""
     immich_base_url: str
     immich_api_key: str
-    max_concurrent: int
     album_name: str = ""
     public_upload_page_enabled: bool = False
     public_base_url: str = ""
@@ -29,7 +28,7 @@ class Settings:
     gallery_dl_timeout: int = 300
     download_concurrency: int = 1
     instagram_ytdlp_fallback: bool = False
-    social_media_uploads: bool = False
+    social_media_uploads: bool = True
 
     @property
     def normalized_base_url(self) -> str:
@@ -38,7 +37,7 @@ class Settings:
 
 def load_settings() -> Settings:
     """Load settings from .env, applying defaults when absent."""
-    # Load environment variables from .env once here so importers don’t have to
+    # Load environment variables from .env once here so importers don't have to
     try:
         load_dotenv()
     except Exception:
@@ -52,10 +51,6 @@ def load_settings() -> Settings:
             return default
         return str(v).strip().lower() in {"1","true","yes","on"}
     public_upload = as_bool(os.getenv("PUBLIC_UPLOAD_PAGE_ENABLED", "false"), False)
-    try:
-        maxc = int(os.getenv("MAX_CONCURRENT", "3"))
-    except ValueError:
-        maxc = 3
     state_db = os.getenv("STATE_DB", "/data/state.db")
     session_secret = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -79,7 +74,6 @@ def load_settings() -> Settings:
     return Settings(
         immich_base_url=base,
         immich_api_key=api_key,
-        max_concurrent=maxc,
         album_name=album_name,
         public_upload_page_enabled=public_upload,
         public_base_url=os.getenv("PUBLIC_BASE_URL", ""),

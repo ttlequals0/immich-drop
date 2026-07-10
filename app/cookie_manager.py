@@ -276,25 +276,6 @@ def db_list_cookies(state_db: str) -> list[dict]:
         return []
 
 
-def db_get_cookie(state_db: str, platform: str) -> Optional[dict]:
-    """Get a single platform cookie."""
-    try:
-        conn = sqlite3.connect(state_db)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT platform, cookie_string, created_at, updated_at "
-            "FROM platform_cookies WHERE platform = ?",
-            (platform.lower(),)
-        )
-        row = cur.fetchone()
-        conn.close()
-        return dict(row) if row else None
-    except Exception as e:
-        logger.warning("Failed to get cookie for %s: %s", platform, e)
-        return None
-
-
 def db_upsert_cookie(state_db: str, platform: str, cookie_string: str) -> bool:
     """Create or update a platform cookie."""
     platform = platform.lower()
