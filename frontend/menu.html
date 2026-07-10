@@ -58,11 +58,10 @@
     <!-- Manage Links -->
     <section class="card">
       <div class="card-header">
-        <h2>Manage Links</h2>
-        <div class="flex gap-2 flex-wrap items-center">
-          <input id="searchQ" placeholder="Search..." class="input" style="width:140px;" />
-          <select id="sortSel" class="input" style="width:130px;"><option value="-created">Newest</option><option value="created">Oldest</option><option value="-expires">Expiry desc</option><option value="expires">Expiry asc</option><option value="name">Name A-Z</option><option value="-name">Name Z-A</option></select>
-          <button id="btnRefresh" class="btn btn--sm">Refresh</button>
+        <h2>Manage Links</h2><button id="btnRefresh" class="btn btn--secondary btn--sm">Refresh</button>
+        <div class="flex gap-2 flex-wrap items-center" style="flex-basis: 100%; min-width: 0;">
+          <input id="searchQ" placeholder="Search..." class="input" style="flex: 1; min-width: 200px;" />
+          <select id="sortSel" class="input" style="flex-shrink: 0; width: auto;"><option value="-created">Newest</option><option value="created">Oldest</option><option value="-expires">Expiry desc</option><option value="expires">Expiry asc</option><option value="name">Name A-Z</option><option value="-name">Name Z-A</option></select>
         </div>
       </div>
       <div style="overflow-x:auto;">
