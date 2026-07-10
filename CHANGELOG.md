@@ -2,6 +2,69 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.0] - 2026-07-10
+
+### Fixed
+- Immich v3 API compatibility: uploads to Immich 3.x failed with 400
+  "Validation failed". The v3 AssetMediaCreateDto no longer accepts
+  deviceAssetId, deviceId, or originalFileName, and its Zod validation rejects
+  unknown fields; those fields are no longer sent. The synthetic
+  device-asset-id is still used for the local dedupe cache only.
+- Immich v3 requires fileCreatedAt/fileModifiedAt in ISO-8601 with an explicit
+  timezone offset; naive EXIF/mtime timestamps are now normalized to UTC.
+- URL-download uploads reported duplicates incorrectly: the code read a
+  non-existent "duplicate" field from the upload response instead of
+  status == "duplicate".
+- Invites created with only an album name never resolved the album: the
+  get_or_create_album coroutine was not awaited (stored a coroutine object
+  instead of an album id).
+- Reachability ping no longer probes /server-info (removed in v3); it now uses
+  /server/ping and /server/version.
+- Immich error responses (now Zod-shaped in v3) are parsed into readable
+  messages instead of raw JSON blobs.
+
+### Changed
+- Unified three separate upload-to-Immich implementations (whole-file, chunked
+  complete, URL/batch/iOS paths) into one async client
+  (app/immich_client.py) using the shared httpx client. Removes blocking
+  requests calls from async handlers; requests and requests-toolbelt
+  dependencies dropped.
+- Centralized SQLite access in app/db.py; all tables (uploads, invites,
+  platform_cookies, upload_events) are created once at startup instead of per
+  request (upload_events was previously CREATE TABLE'd on every upload).
+- Chunked upload completion streams parts into a single file and verifies all
+  parts before consuming them, instead of buffering the whole file in memory
+  twice.
+- Expired URL-download jobs are cleaned up by a background task instead of
+  only when a client polls job status.
+- Third-party debug logging (PIL, python_multipart, httpcore, httpx, urllib3,
+  websockets) is capped at WARNING so LOG_LEVEL=DEBUG no longer floods logs
+  with EXIF-tag and multipart-parser noise; .env.example default is now INFO.
+- CORS middleware no longer combines wildcard origins with credentials.
+- Favicon is read from disk once at startup instead of on every request.
+- Theme choice (from the new auto light/dark mode, PR #44) now persists in
+  localStorage across page loads.
+- Invite create form (PR #50) only clears its fields after successful
+  creation.
+- Docker image: requirements.txt path aligned with WORKDIR, redundant separate
+  python-multipart install removed, docs/CHANGELOG excluded from build
+  context.
+
+### Removed
+- Dead code: unused db_get_cookie (cookie_manager), is_supported_url
+  (url_downloader), unused download_from_url import, MAX_CONCURRENT setting
+  (never referenced), dead retry handler and unused escapeHtml in the
+  frontend, commented-out login gate, duplicate pbkdf2 hasher definitions.
+
+### Merged
+- Dependabot #55 (13 python-deps updates incl. starlette 1.3.1 and
+  python-multipart 0.0.32, resolving Dependabot alerts 16-21) and #53
+  (yt-dlp 2026.7.4, gallery-dl 1.32.5). #36/#37/#38 superseded by #55.
+- Community PRs by aidenjbass: #44 auto light/dark theme, #45 mobile
+  formatting, #46 social media section toggle, #47 hide back-to-uploader
+  button when public uploads disabled, #48 album name fix, #50 clear invite
+  form after creation, #51 human readable byte sizes.
+
 ## [1.7.2] - 2026-06-14
 
 ### Security

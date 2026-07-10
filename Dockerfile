@@ -20,10 +20,9 @@ COPY --from=mwader/static-ffmpeg:7.1 /ffmpeg /usr/local/bin/ffmpeg
 COPY --from=mwader/static-ffmpeg:7.1 /ffprobe /usr/local/bin/ffprobe
 
 # Install Python deps
-COPY requirements.txt /app/requirements.txt
+COPY requirements.txt /immich_drop/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r /app/requirements.txt \
-    && pip install --no-cache-dir python-multipart
+    && pip install --no-cache-dir -r /immich_drop/requirements.txt
 
 # Copy app code
 COPY . /immich_drop
