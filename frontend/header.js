@@ -23,7 +23,10 @@
   }
 
   function initDarkMode(){
-    themeMode = 'system';
+    try{
+      const saved = localStorage.getItem('immich_drop_theme');
+      themeMode = (saved === 'light' || saved === 'dark') ? saved : 'system';
+    }catch{ themeMode = 'system'; }
     applyTheme(themeMode);
     updateThemeIcon();
     if (prefersDark && prefersDark.addEventListener) {
@@ -35,6 +38,7 @@
 
   function toggleDarkMode() {
     themeMode = (themeMode === 'dark') ? 'system' : (themeMode === 'system') ? 'light' : 'dark';
+    try{ localStorage.setItem('immich_drop_theme', themeMode); }catch{}
     applyTheme(themeMode);
     updateThemeIcon();
   }

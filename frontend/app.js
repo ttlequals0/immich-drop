@@ -67,7 +67,10 @@ function updateThemeIcon(){
 }
 
 function initDarkMode(){
-  themeMode = 'system';
+  try{
+    const saved = localStorage.getItem('immich_drop_theme');
+    themeMode = (saved === 'light' || saved === 'dark') ? saved : 'system';
+  }catch{ themeMode = 'system'; }
   applyTheme(themeMode);
   updateThemeIcon();
   if (prefersDark && prefersDark.addEventListener) {
@@ -79,6 +82,7 @@ function initDarkMode(){
 
 function toggleDarkMode() {
   themeMode = (themeMode === 'dark') ? 'system' : (themeMode === 'system') ? 'light' : 'dark';
+  try{ localStorage.setItem('immich_drop_theme', themeMode); }catch{}
   applyTheme(themeMode);
   updateThemeIcon();
 }
@@ -164,23 +168,6 @@ function render(){
 
     itemsEl.appendChild(card);
   });
-
-  // Attach retry handlers for errored items
-  try {
-    itemsEl.querySelectorAll('.btnRetry').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        const id = btn.getAttribute('data-id');
-        const it = items.find(x => x.id === id);
-        if (!it) return;
-        it.status = 'queued';
-        it.progress = 0;
-        try { delete it.message; } catch {}
-        render();
-        runQueue();
-      });
-    });
-  } catch {}
 
   const c = {queued:0,uploading:0,done:0,dup:0,err:0};
   for(const it of items){

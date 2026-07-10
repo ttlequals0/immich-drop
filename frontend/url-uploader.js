@@ -21,9 +21,9 @@ class UrlUploader {
 
     // NOTE: This render method uses innerHTML to build its own UI shell.
     // All dynamic user content (filenames, URLs, platform names) injected
-    // later uses escapeHtml() or textContent -- see addResult() and
-    // loadSupportedPlatforms(). This initial template contains only
-    // static markup with no user-supplied data.
+    // later uses textContent -- see addResult() and loadSupportedPlatforms().
+    // This initial template contains only static markup with no
+    // user-supplied data.
     render() {
         this.container.innerHTML =
             '<div class="url-uploader">'
@@ -319,11 +319,6 @@ class UrlUploader {
         }
     }
 
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 }
 
 // Export for module usage

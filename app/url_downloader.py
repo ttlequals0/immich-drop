@@ -232,11 +232,6 @@ def is_direct_image_url(url: str) -> bool:
     return False
 
 
-def is_supported_url(url: str) -> bool:
-    """Check if URL is from a supported platform or a direct image URL"""
-    return identify_platform(url) is not None or is_direct_image_url(url)
-
-
 async def download_direct_image(
     url: str,
     output_dir: Optional[str] = None,

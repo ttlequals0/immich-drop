@@ -11,20 +11,18 @@ Immich Drop Uploader – Backend (FastAPI, simplified)
 from __future__ import annotations
 
 import asyncio
+import binascii
 import io
 import json
 import hashlib
 import os
 import re
-import sqlite3
-from contextlib import asynccontextmanager
-from datetime import datetime
+from contextlib import asynccontextmanager, suppress
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import httpx
-import requests
-from requests_toolbelt.multipart.encoder import MultipartEncoder, MultipartEncoderMonitor
 import logging
 from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse, Response
@@ -39,6 +37,9 @@ except Exception:
     qrcode = None
 
 from app.config import Settings, load_settings
+from app import db, immich_client
+from app.immich_client import to_immich_iso
+from app.job_manager import cleanup_expired
 from version import VERSION
 
 
@@ -49,17 +50,30 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting immich-drop v{VERSION}")
     # Startup: create shared httpx client for connection pooling
     app.state.httpx_client = httpx.AsyncClient(timeout=30.0)
+
+    async def _job_cleanup_loop():
+        while True:
+            await asyncio.sleep(60)
+            with suppress(Exception):
+                cleanup_expired()
+
+    cleanup_task = asyncio.create_task(_job_cleanup_loop())
     yield
-    # Shutdown: close the shared client
+    # Shutdown: stop background work and close the shared client
+    cleanup_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await cleanup_task
     await app.state.httpx_client.aclose()
 
 
 # ---- App & static ----
 app = FastAPI(title="Immich Drop Uploader (Python)", lifespan=lifespan)
+# Wildcard origins must not be combined with credentials; the frontend is
+# same-origin and API clients (iOS Shortcuts) do not use cookies.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -69,6 +83,10 @@ SETTINGS: Settings = load_settings()
 
 # Basic logging setup using settings
 logging.basicConfig(level=SETTINGS.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# Third-party libraries log large volumes at DEBUG; keep them at WARNING
+# regardless of the app LOG_LEVEL.
+for _noisy in ("PIL", "python_multipart", "httpcore", "httpx", "urllib3", "websockets", "charset_normalizer"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 logger = logging.getLogger("immich_drop")
 
 # Cookie-based session for short-lived auth token storage (no persistence)
@@ -83,7 +101,7 @@ api_router = create_api_routes(SETTINGS)
 app.include_router(api_router)
 
 # Chunk upload storage
-CHUNK_ROOT = "/data/chunks"
+CHUNK_ROOT = os.getenv("CHUNK_DIR", "/data/chunks")
 try:
     os.makedirs(CHUNK_ROOT, exist_ok=True)
 except Exception:
@@ -101,31 +119,15 @@ def reset_album_cache() -> None:
     ALBUM_ID = None
 
 # ---------- DB (local dedupe cache) ----------
+# All tables (uploads, invites, platform_cookies, upload_events) are created
+# once at startup in db.init_db().
 
-def db_init() -> None:
-    """Create the local SQLite table used for duplicate checks (idempotent)."""
-    conn = sqlite3.connect(SETTINGS.state_db)
-    cur = conn.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS uploads (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            checksum TEXT UNIQUE,
-            filename TEXT,
-            size INTEGER,
-            device_asset_id TEXT,
-            immich_asset_id TEXT,
-            created_at TEXT,
-            inserted_at TEXT DEFAULT CURRENT_TIMESTAMP
-        );
-        """
-    )
-    conn.commit()
-    conn.close()
+db.configure(SETTINGS.state_db)
+db.init_db()
 
 def db_lookup_checksum(checksum: str) -> Optional[dict]:
     """Return a record for the given checksum if seen before (None if not)."""
-    conn = sqlite3.connect(SETTINGS.state_db)
+    conn = db.connect()
     cur = conn.cursor()
     cur.execute("SELECT checksum, immich_asset_id FROM uploads WHERE checksum = ?", (checksum,))
     row = cur.fetchone()
@@ -136,7 +138,7 @@ def db_lookup_checksum(checksum: str) -> Optional[dict]:
 
 def db_lookup_device_asset(device_asset_id: str) -> bool:
     """True if a deviceAssetId has been uploaded by this service previously."""
-    conn = sqlite3.connect(SETTINGS.state_db)
+    conn = db.connect()
     cur = conn.cursor()
     cur.execute("SELECT 1 FROM uploads WHERE device_asset_id = ?", (device_asset_id,))
     row = cur.fetchone()
@@ -145,7 +147,7 @@ def db_lookup_device_asset(device_asset_id: str) -> bool:
 
 def db_insert_upload(checksum: str, filename: str, size: int, device_asset_id: str, immich_asset_id: Optional[str], created_at: str) -> None:
     """Insert a newly-uploaded asset into the local cache (ignore on duplicates)."""
-    conn = sqlite3.connect(SETTINGS.state_db)
+    conn = db.connect()
     cur = conn.cursor()
     cur.execute(
         "INSERT OR IGNORE INTO uploads (checksum, filename, size, device_asset_id, immich_asset_id, created_at) VALUES (?,?,?,?,?,?)",
@@ -153,8 +155,6 @@ def db_insert_upload(checksum: str, filename: str, size: int, device_asset_id: s
     )
     conn.commit()
     conn.close()
-
-db_init()
 
 # ---------- WebSocket hub ----------
 
@@ -310,55 +310,17 @@ async def get_or_create_album(request: Optional[Request] = None, album_name_over
         if album_name_override is None and ALBUM_ID:
             return ALBUM_ID
 
-        try:
-            # Use shared httpx client from app state
-            client = app.state.httpx_client
-            # First, try to find existing album
-            url = f"{SETTINGS.normalized_base_url}/albums"
-            r = await client.get(url, headers=immich_headers(request), timeout=10.0)
-
-            if r.status_code == 200:
-                albums = r.json()
-                for album in albums:
-                    if album.get("albumName") == album_name:
-                        found_id = album.get("id")
-                        if album_name_override is None:
-                            ALBUM_ID = found_id
-                            logger.info(f"Found existing album '%s' with ID: %s", album_name, ALBUM_ID)
-                            return ALBUM_ID
-                        else:
-                            return found_id
-            elif r.status_code >= 500:
-                # Server error from Immich - do not attempt to create album
-                # to avoid creating duplicates when server is having issues
-                logger.warning("Immich returned %s when listing albums, skipping album assignment", r.status_code)
-                return None
-
-            # Album doesn't exist, create it
-            create_url = f"{SETTINGS.normalized_base_url}/albums"
-            payload = {
-                "albumName": album_name,
-                "description": "Auto-created album for Immich Drop uploads"
-            }
-            r = await client.post(create_url, headers={**immich_headers(request), "Content-Type": "application/json"},
-                              json=payload, timeout=10.0)
-
-            if r.status_code in (200, 201):
-                data = r.json()
-                new_id = data.get("id")
-                if album_name_override is None:
-                    ALBUM_ID = new_id
-                    logger.info("Created new album '%s' with ID: %s", album_name, ALBUM_ID)
-                    return ALBUM_ID
-                else:
-                    logger.info("Created new album '%s' with ID: %s", album_name, new_id)
-                    return new_id
-            else:
-                logger.warning("Failed to create album: %s - %s", r.status_code, r.text)
-        except Exception as e:
-            logger.exception("Error managing album: %s", e)
-
-        return None
+        found_id = await immich_client.find_or_create_album(
+            app.state.httpx_client,
+            SETTINGS.normalized_base_url,
+            immich_headers(request),
+            album_name,
+            description="Auto-created album for Immich Drop uploads",
+        )
+        if found_id and album_name_override is None:
+            ALBUM_ID = found_id
+            logger.info("Resolved album '%s' to ID: %s", album_name, ALBUM_ID)
+        return found_id
 
 async def add_asset_to_album(asset_id: str, request: Optional[Request] = None, album_id_override: Optional[str] = None, album_name_override: Optional[str] = None) -> bool:
     """Add an asset to the configured album. Returns True on success."""
@@ -367,58 +329,21 @@ async def add_asset_to_album(asset_id: str, request: Optional[Request] = None, a
         album_id = await get_or_create_album(request=request, album_name_override=album_name_override)
     if not album_id or not asset_id:
         return False
-
-    try:
-        # Use shared httpx client from app state
-        client = app.state.httpx_client
-        url = f"{SETTINGS.normalized_base_url}/albums/{album_id}/assets"
-        payload = {"ids": [asset_id]}
-        r = await client.put(url, headers={**immich_headers(request), "Content-Type": "application/json"},
-                         json=payload, timeout=10.0)
-
-        if r.status_code == 200:
-            results = r.json()
-            # Check if any result indicates success
-            for result in results:
-                if result.get("success"):
-                    return True
-                elif result.get("error") == "duplicate":
-                    # Asset already in album, consider it success
-                    return True
-        return False
-    except Exception as e:
-        logger.exception("Error adding asset to album: %s", e)
-        return False
+    return await immich_client.add_to_album(
+        app.state.httpx_client, SETTINGS.normalized_base_url, immich_headers(request), album_id, asset_id
+    )
 
 async def immich_ping() -> bool:
     """Best-effort reachability check against a few Immich endpoints."""
     if not SETTINGS.immich_api_key:
         return False
-    base = SETTINGS.normalized_base_url
-    # Use shared httpx client from app state
-    client = app.state.httpx_client
-    for path in ("/server-info", "/server/version", "/users/me"):
-        try:
-            r = await client.get(f"{base}{path}", headers=immich_headers(), timeout=4.0)
-            if 200 <= r.status_code < 400:
-                return True
-        except Exception:
-            continue
-    return False
+    return await immich_client.ping(app.state.httpx_client, SETTINGS.normalized_base_url, immich_headers())
 
 async def immich_bulk_check(checks: List[dict]) -> Dict[str, dict]:
     """Try Immich bulk upload check; return map id->result (or empty on failure)."""
-    try:
-        # Use shared httpx client from app state
-        client = app.state.httpx_client
-        url = f"{SETTINGS.normalized_base_url}/assets/bulk-upload-check"
-        r = await client.post(url, headers=immich_headers(), json={"assets": checks}, timeout=10.0)
-        if r.status_code == 200:
-            results = r.json().get("results", [])
-            return {x["id"]: x for x in results}
-    except Exception:
-        pass
-    return {}
+    return await immich_client.bulk_upload_check(
+        app.state.httpx_client, SETTINGS.normalized_base_url, immich_headers(), checks
+    )
 
 async def send_progress(session_id: str, item_id: str, status: str, progress: int = 0, message: str = "", response_id: Optional[str] = None) -> None:
     """Push a progress update over WebSocket for one queue item."""
@@ -451,13 +376,17 @@ async def menu_page(request: Request) -> HTMLResponse:
         return RedirectResponse(url="/login")
     return FileResponse(os.path.join(FRONTEND_DIR, "menu.html"))
 
+try:
+    with open(os.path.join(FRONTEND_DIR, "favicon.png"), "rb") as _f:
+        _FAVICON_BYTES: Optional[bytes] = _f.read()
+except Exception:
+    _FAVICON_BYTES = None
+
 @app.get("/favicon.ico")
 async def favicon() -> Response:
     """Serve favicon from /static/favicon.png if present (avoids 404 noise)."""
-    path = os.path.join(FRONTEND_DIR, "favicon.png")
-    if os.path.exists(path):
-        with open(path, "rb") as f:
-            return Response(content=f.read(), media_type="image/png")
+    if _FAVICON_BYTES:
+        return Response(content=_FAVICON_BYTES, media_type="image/png")
     return Response(status_code=204)
 
 @app.post("/api/ping")
@@ -517,28 +446,154 @@ async def ws_endpoint(ws: WebSocket) -> None:
     finally:
         await hub.disconnect(session_id, ws)
 
-@app.post("/api/upload")
-async def api_upload(
+# ---------- Upload core (shared by whole-file and chunked paths) ----------
+
+def check_invite_for_upload(request: Request, invite_token: str, session_id: str):
+    """Validate an invite token for an upload attempt.
+
+    Returns (error, album_id, album_name) where error is
+    (ws_message, error_key, http_status) or None when the invite is usable.
+    """
+    try:
+        conn = db.connect()
+        cur = conn.cursor()
+        cur.execute("SELECT token, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), claimed_by_session, password_hash, COALESCE(disabled,0) FROM invites WHERE token = ?", (invite_token,))
+        row = cur.fetchone()
+        conn.close()
+    except Exception as e:
+        logger.exception("Invite lookup error: %s", e)
+        row = None
+    if not row:
+        return ("Invalid invite token", "invalid_invite", 403), None, None
+    _, album_id, album_name, max_uses, used_count, expires_at, claimed, claimed_by_session, password_hash, disabled = row
+    # Admin deactivation check
+    try:
+        if int(disabled) == 1:
+            return ("Invite disabled", "invite_disabled", 403), None, None
+    except Exception:
+        pass
+    # If invite requires password, ensure this session is authorized
+    if password_hash:
+        try:
+            ia = request.session.get("inviteAuth") or {}
+            if not ia.get(invite_token):
+                return ("Password required", "invite_password_required", 403), None, None
+        except Exception:
+            return ("Password required", "invite_password_required", 403), None, None
+    # Expiry check
+    if expires_at:
+        try:
+            if datetime.utcnow() > datetime.fromisoformat(expires_at):
+                return ("Invite expired", "invite_expired", 403), None, None
+        except Exception:
+            pass
+    # One-time claim or multi-use enforcement
+    try:
+        max_uses_int = int(max_uses) if max_uses is not None else -1
+    except Exception:
+        max_uses_int = -1
+    if max_uses_int == 1:
+        if claimed:
+            # Allow same session to continue; block different sessions
+            if claimed_by_session and claimed_by_session != session_id:
+                return ("Invite already used", "invite_claimed", 403), None, None
+        else:
+            # Atomically claim the one-time invite to prevent concurrent use
+            try:
+                connc = db.connect()
+                curc = connc.cursor()
+                curc.execute(
+                    "UPDATE invites SET claimed = 1, claimed_at = CURRENT_TIMESTAMP, claimed_by_session = ? WHERE token = ? AND (claimed IS NULL OR claimed = 0)",
+                    (session_id, invite_token)
+                )
+                connc.commit()
+                changed = connc.total_changes
+                connc.close()
+            except Exception as e:
+                logger.exception("Invite claim failed: %s", e)
+                return ("Invite claim failed", "invite_claim_failed", 500), None, None
+            if changed == 0:
+                # Someone else just claimed; re-check owner
+                try:
+                    conn2 = db.connect()
+                    cur2 = conn2.cursor()
+                    cur2.execute("SELECT claimed_by_session FROM invites WHERE token = ?", (invite_token,))
+                    owner_row = cur2.fetchone()
+                    conn2.close()
+                    owner = owner_row[0] if owner_row else None
+                except Exception:
+                    owner = None
+                if not owner or owner != session_id:
+                    return ("Invite already used", "invite_claimed", 403), None, None
+    else:
+        # Usage check for multi-use (max_uses < 0 => indefinite)
+        if (used_count or 0) >= (max_uses_int if max_uses_int >= 0 else 10**9):
+            return ("Invite already used up", "invite_exhausted", 403), None, None
+    return None, album_id, album_name
+
+def increment_invite_usage(invite_token: str) -> None:
+    """Bump used_count after a successful upload (one-time stays at 1)."""
+    try:
+        conn = db.connect()
+        cur = conn.cursor()
+        cur.execute("SELECT max_uses FROM invites WHERE token = ?", (invite_token,))
+        row_mu = cur.fetchone()
+        try:
+            mx = int(row_mu[0]) if row_mu and row_mu[0] is not None else None
+        except Exception:
+            mx = None
+        if mx == 1:
+            cur.execute("UPDATE invites SET used_count = 1 WHERE token = ?", (invite_token,))
+        else:
+            cur.execute("UPDATE invites SET used_count = used_count + 1 WHERE token = ?", (invite_token,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.exception("Failed to increment invite usage: %s", e)
+
+def log_upload_event(request: Request, invite_token: Optional[str], fingerprint: Optional[str], filename: str, size: int, checksum: str, asset_id: Optional[str]) -> None:
+    """Record uploader identity and file metadata (best-effort)."""
+    try:
+        ip = None
+        try:
+            ip = (request.client.host if request and request.client else None) or request.headers.get('x-forwarded-for')
+        except Exception:
+            ip = None
+        ua = request.headers.get('user-agent', '') if request else ''
+        conn = db.connect()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO upload_events (token, ip, user_agent, fingerprint, filename, size, checksum, immich_asset_id) VALUES (?,?,?,?,?,?,?,?)",
+            (invite_token or '', ip, ua, fingerprint or '', filename, size, checksum, asset_id or None)
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+async def process_upload(
     request: Request,
-    file: UploadFile,
-    item_id: str = Form(...),
-    session_id: str = Form(...),
-    last_modified: Optional[int] = Form(None),
-    invite_token: Optional[str] = Form(None),
-    fingerprint: Optional[str] = Form(None),
-):
-    """Receive a file, check duplicates, forward to Immich; stream progress via WS."""
-    raw = await file.read()
+    *,
+    raw: bytes,
+    orig_name: str,
+    content_type: Optional[str],
+    item_id: str,
+    session_id: str,
+    last_modified: Optional[int],
+    invite_token: Optional[str],
+    fingerprint: Optional[str],
+) -> JSONResponse:
+    """Dedupe-check and forward one file to Immich, streaming progress via WS."""
     size = len(raw)
     checksum = sha1_hex(raw)
 
     exif_created, exif_modified = read_exif_datetimes(raw)
-    created_at = exif_created or (datetime.fromtimestamp(last_modified / 1000) if last_modified else datetime.utcnow())
+    created_at = exif_created or (datetime.fromtimestamp(last_modified / 1000, tz=timezone.utc) if last_modified else datetime.now(timezone.utc))
     modified_at = exif_modified or created_at
-    created_iso = created_at.isoformat()
-    modified_iso = modified_at.isoformat()
+    created_iso = to_immich_iso(created_at)
 
-    device_asset_id = f"{file.filename}-{last_modified or 0}-{size}"
+    # Local dedupe key only; Immich v3 no longer accepts deviceAssetId/deviceId
+    device_asset_id = f"{orig_name}-{last_modified or 0}-{size}"
 
     if db_lookup_checksum(checksum):
         await send_progress(session_id, item_id, "duplicate", 100, "Duplicate (by checksum - local cache)")
@@ -551,220 +606,93 @@ async def api_upload(
     bulk = await immich_bulk_check([{"id": item_id, "checksum": checksum}])
     if bulk.get(item_id, {}).get("action") == "reject" and bulk[item_id].get("reason") == "duplicate":
         asset_id = bulk[item_id].get("assetId")
-        db_insert_upload(checksum, file.filename, size, device_asset_id, asset_id, created_iso)
+        db_insert_upload(checksum, orig_name, size, device_asset_id, asset_id, created_iso)
         await send_progress(session_id, item_id, "duplicate", 100, "Duplicate (server)", asset_id)
         return JSONResponse({"status": "duplicate", "id": asset_id}, status_code=200)
-
-    safe_name = sanitize_filename(file.filename)
-    def gen_encoder() -> MultipartEncoder:
-        return MultipartEncoder(fields={
-            "assetData": (safe_name, io.BytesIO(raw), file.content_type or "application/octet-stream"),
-            "deviceAssetId": device_asset_id,
-            "deviceId": f"python-{session_id}",
-            "fileCreatedAt": created_iso,
-            "fileModifiedAt": modified_iso,
-            "isFavorite": "false",
-            "filename": safe_name,
-            "originalFileName": safe_name,
-        })
-
-    encoder = gen_encoder()
 
     # Invite token validation (if provided)
     target_album_id: Optional[str] = None
     target_album_name: Optional[str] = None
     if invite_token:
-        try:
-            conn = sqlite3.connect(SETTINGS.state_db)
-            cur = conn.cursor()
-            cur.execute("SELECT token, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), claimed_by_session, password_hash, COALESCE(disabled,0) FROM invites WHERE token = ?", (invite_token,))
-            row = cur.fetchone()
-            conn.close()
-        except Exception as e:
-            logger.exception("Invite lookup error: %s", e)
-            row = None
-        if not row:
-            await send_progress(session_id, item_id, "error", 100, "Invalid invite token")
-            return JSONResponse({"error": "invalid_invite"}, status_code=403)
-        _, album_id, album_name, max_uses, used_count, expires_at, claimed, claimed_by_session, password_hash, disabled = row
-        # Admin deactivation check
-        try:
-            if int(disabled) == 1:
-                await send_progress(session_id, item_id, "error", 100, "Invite disabled")
-                return JSONResponse({"error": "invite_disabled"}, status_code=403)
-        except Exception:
-            pass
-        # If invite requires password, ensure this session is authorized
-        if password_hash:
-            try:
-                ia = request.session.get("inviteAuth") or {}
-                if not ia.get(invite_token):
-                    await send_progress(session_id, item_id, "error", 100, "Password required")
-                    return JSONResponse({"error": "invite_password_required"}, status_code=403)
-            except Exception:
-                await send_progress(session_id, item_id, "error", 100, "Password required")
-                return JSONResponse({"error": "invite_password_required"}, status_code=403)
-        # Expiry check
-        if expires_at:
-            try:
-                if datetime.utcnow() > datetime.fromisoformat(expires_at):
-                    await send_progress(session_id, item_id, "error", 100, "Invite expired")
-                    return JSONResponse({"error": "invite_expired"}, status_code=403)
-            except Exception:
-                pass
-        # One-time claim or multi-use enforcement
-        try:
-            max_uses_int = int(max_uses) if max_uses is not None else -1
-        except Exception:
-            max_uses_int = -1
-        if max_uses_int == 1:
-            # Already claimed?
-            if claimed:
-                # Allow same session to continue; block different sessions
-                if claimed_by_session and claimed_by_session != session_id:
-                    await send_progress(session_id, item_id, "error", 100, "Invite already used")
-                    return JSONResponse({"error": "invite_claimed"}, status_code=403)
-                # claimed by same session (or unknown): allow
-            else:
-                # Atomically claim the one-time invite to prevent concurrent use
-                try:
-                    connc = sqlite3.connect(SETTINGS.state_db)
-                    curc = connc.cursor()
-                    curc.execute(
-                        "UPDATE invites SET claimed = 1, claimed_at = CURRENT_TIMESTAMP, claimed_by_session = ? WHERE token = ? AND (claimed IS NULL OR claimed = 0)",
-                        (session_id, invite_token)
-                    )
-                    connc.commit()
-                    changed = connc.total_changes
-                    connc.close()
-                except Exception as e:
-                    logger.exception("Invite claim failed: %s", e)
-                    return JSONResponse({"error": "invite_claim_failed"}, status_code=500)
-                if changed == 0:
-                    # Someone else just claimed; re-check owner
-                    try:
-                        conn2 = sqlite3.connect(SETTINGS.state_db)
-                        cur2 = conn2.cursor()
-                        cur2.execute("SELECT claimed_by_session FROM invites WHERE token = ?", (invite_token,))
-                        owner_row = cur2.fetchone()
-                        conn2.close()
-                        owner = owner_row[0] if owner_row else None
-                    except Exception:
-                        owner = None
-                    if not owner or owner != session_id:
-                        await send_progress(session_id, item_id, "error", 100, "Invite already used")
-                        return JSONResponse({"error": "invite_claimed"}, status_code=403)
-        else:
-            # Usage check for multi-use (max_uses < 0 => indefinite)
-            if (used_count or 0) >= (max_uses_int if max_uses_int >= 0 else 10**9):
-                await send_progress(session_id, item_id, "error", 100, "Invite already used up")
-                return JSONResponse({"error": "invite_exhausted"}, status_code=403)
-        target_album_id = album_id
-        target_album_name = album_name
+        error, target_album_id, target_album_name = check_invite_for_upload(request, invite_token, session_id)
+        if error:
+            msg, key, http_status = error
+            await send_progress(session_id, item_id, "error", 100, msg)
+            return JSONResponse({"error": key}, status_code=http_status)
 
-    async def do_upload():
-        await send_progress(session_id, item_id, "uploading", 0, "Uploading…")
-        sent = {"pct": 0}
-        def cb(monitor: MultipartEncoderMonitor) -> None:
-            if monitor.len:
-                pct = int(monitor.bytes_read * 100 / monitor.len)
-                if pct != sent["pct"]:
-                    sent["pct"] = pct
-                    asyncio.create_task(send_progress(session_id, item_id, "uploading", pct))
-        monitor = MultipartEncoderMonitor(encoder, cb)
-        headers = {"Accept": "application/json", "Content-Type": monitor.content_type, "x-immich-checksum": checksum, **immich_headers(request)}
-        try:
-            r = requests.post(f"{SETTINGS.normalized_base_url}/assets", headers=headers, data=monitor, timeout=120)
-            if r.status_code in (200, 201):
-                data = r.json()
-                asset_id = data.get("id")
-                db_insert_upload(checksum, file.filename, size, device_asset_id, asset_id, created_iso)
-                status = data.get("status", "created")
-                
-                # Add to album if configured (invite overrides .env)
-                if asset_id:
-                    added = False
-                    if invite_token:
-                        # Only add if invite specified an album; do not fallback to env default
-                        if target_album_id or target_album_name:
-                            added = await add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name)
-                            if added:
-                                status += f" (added to album '{target_album_name or target_album_id}')"
-                    elif SETTINGS.album_name:
-                        if await add_asset_to_album(asset_id, request=request):
-                            status += f" (added to album '{SETTINGS.album_name}')"
+    safe_name = sanitize_filename(orig_name)
+    await send_progress(session_id, item_id, "uploading", 0, "Uploading…")
 
-                await send_progress(session_id, item_id, "duplicate" if status == "duplicate" else "done", 100, status, asset_id)
+    def on_progress(pct: int) -> None:
+        asyncio.create_task(send_progress(session_id, item_id, "uploading", pct))
 
-                # Increment invite usage on success
-                if invite_token:
-                    try:
-                        conn2 = sqlite3.connect(SETTINGS.state_db)
-                        cur2 = conn2.cursor()
-                        # Keep one-time used_count at 1; multi-use increments per asset
-                        cur2.execute("SELECT max_uses FROM invites WHERE token = ?", (invite_token,))
-                        row_mu = cur2.fetchone()
-                        mx = None
-                        try:
-                            mx = int(row_mu[0]) if row_mu and row_mu[0] is not None else None
-                        except Exception:
-                            mx = None
-                        if mx == 1:
-                            cur2.execute("UPDATE invites SET used_count = 1 WHERE token = ?", (invite_token,))
-                        else:
-                            cur2.execute("UPDATE invites SET used_count = used_count + 1 WHERE token = ?", (invite_token,))
-                        conn2.commit()
-                        conn2.close()
-                    except Exception as e:
-                        logger.exception("Failed to increment invite usage: %s", e)
-                # Log uploader identity and file metadata
-                try:
-                    connlg = sqlite3.connect(SETTINGS.state_db)
-                    curlg = connlg.cursor()
-                    curlg.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS upload_events (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            token TEXT,
-                            uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                            ip TEXT,
-                            user_agent TEXT,
-                            fingerprint TEXT,
-                            filename TEXT,
-                            size INTEGER,
-                            checksum TEXT,
-                            immich_asset_id TEXT
-                        );
-                        """
-                    )
-                    ip = None
-                    try:
-                        ip = (request.client.host if request and request.client else None) or request.headers.get('x-forwarded-for')
-                    except Exception:
-                        ip = None
-                    ua = request.headers.get('user-agent', '') if request else ''
-                    curlg.execute(
-                        "INSERT INTO upload_events (token, ip, user_agent, fingerprint, filename, size, checksum, immich_asset_id) VALUES (?,?,?,?,?,?,?,?)",
-                        (invite_token or '', ip, ua, fingerprint or '', file.filename, size, checksum, asset_id or None)
-                    )
-                    connlg.commit()
-                    connlg.close()
-                except Exception:
-                    pass
-                return JSONResponse({"id": asset_id, "status": status}, status_code=200)
-            else:
-                try:
-                    msg = r.json().get("message", r.text)
-                except Exception:
-                    msg = r.text
-                await send_progress(session_id, item_id, "error", 100, msg)
-                return JSONResponse({"error": msg}, status_code=400)
-        except Exception:
-            logger.exception("upload failed (session=%s item=%s)", session_id, item_id)
+    outcome = await immich_client.upload_asset(
+        app.state.httpx_client,
+        SETTINGS.normalized_base_url,
+        immich_headers(request),
+        file_bytes=raw,
+        filename=safe_name,
+        content_type=content_type or "application/octet-stream",
+        checksum=checksum,
+        created_at=created_at,
+        modified_at=modified_at,
+        progress=on_progress,
+        timeout=300.0,
+    )
+    if not outcome.ok:
+        if outcome.status_code == 0:
+            logger.error("upload failed (session=%s item=%s): %s", session_id, item_id, outcome.error)
             await send_progress(session_id, item_id, "error", 100, "upload failed")
             return JSONResponse({"error": "upload failed"}, status_code=500)
+        msg = outcome.error or "upload failed"
+        await send_progress(session_id, item_id, "error", 100, msg)
+        return JSONResponse({"error": msg}, status_code=400)
 
-    return await do_upload()
+    asset_id = outcome.asset_id
+    status = outcome.status or "created"
+    db_insert_upload(checksum, orig_name, size, device_asset_id, asset_id, created_iso)
+
+    # Add to album if configured (invite overrides .env)
+    if asset_id:
+        if invite_token:
+            # Only add if invite specified an album; do not fallback to env default
+            if target_album_id or target_album_name:
+                if await add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name):
+                    status += f" (added to album '{target_album_name or target_album_id}')"
+        elif SETTINGS.album_name:
+            if await add_asset_to_album(asset_id, request=request):
+                status += f" (added to album '{SETTINGS.album_name}')"
+
+    await send_progress(session_id, item_id, "duplicate" if outcome.status == "duplicate" else "done", 100, status, asset_id)
+
+    if invite_token:
+        increment_invite_usage(invite_token)
+    log_upload_event(request, invite_token, fingerprint, orig_name, size, checksum, asset_id)
+    return JSONResponse({"id": asset_id, "status": status}, status_code=200)
+
+@app.post("/api/upload")
+async def api_upload(
+    request: Request,
+    file: UploadFile,
+    item_id: str = Form(...),
+    session_id: str = Form(...),
+    last_modified: Optional[int] = Form(None),
+    invite_token: Optional[str] = Form(None),
+    fingerprint: Optional[str] = Form(None),
+):
+    """Receive a file, check duplicates, forward to Immich; stream progress via WS."""
+    raw = await file.read()
+    return await process_upload(
+        request,
+        raw=raw,
+        orig_name=file.filename or "file",
+        content_type=file.content_type,
+        item_id=item_id,
+        session_id=session_id,
+        last_modified=last_modified,
+        invite_token=invite_token,
+        fingerprint=fingerprint,
+    )
 
 # --------- Chunked upload endpoints ---------
 
@@ -858,7 +786,7 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
         return JSONResponse({"error": "invalid_json"}, status_code=400)
     item_id = (data or {}).get("item_id")
     session_id = (data or {}).get("session_id")
-    name = (data or {}).get("name") or "upload.bin"
+    name = (data or {}).get("name")
     last_modified = (data or {}).get("last_modified")
     invite_token = (data or {}).get("invite_token")
     fingerprint = (data or {}).get("fingerprint")
@@ -867,7 +795,6 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
         return JSONResponse({"error": "missing_ids"}, status_code=400)
     d = _chunk_dir(session_id, item_id)
     meta_path = os.path.join(d, "meta.json")
-    # Basic validation
     try:
         with open(meta_path, "r", encoding="utf-8") as f:
             meta = json.load(f)
@@ -877,265 +804,49 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
     if total_chunks <= 0:
         return JSONResponse({"error": "missing_total"}, status_code=400)
     # Prefer the name captured at init if request did not include it
-    if not name:
-        try:
-            name = meta.get("name") or name
-        except Exception:
-            pass
-    if not name:
-        name = "upload.bin"
-    # Assemble
-    parts = []
+    name = name or meta.get("name") or "upload.bin"
+
+    # Verify all parts exist before consuming any (missing part => client can retry)
+    for i in range(total_chunks):
+        if not os.path.exists(os.path.join(d, f"part_{i:06d}")):
+            return JSONResponse({"error": "missing_part", "index": i}, status_code=400)
+
+    # Assemble by streaming parts into one file (avoids holding two copies in RAM)
+    assembled_path = os.path.join(d, "assembled.bin")
     try:
-        for i in range(total_chunks):
-            p = os.path.join(d, f"part_{i:06d}")
-            if not os.path.exists(p):
-                return JSONResponse({"error": "missing_part", "index": i}, status_code=400)
-            with open(p, "rb") as f:
-                parts.append(f.read())
-        raw = b"".join(parts)
+        with open(assembled_path, "wb") as out:
+            for i in range(total_chunks):
+                p = os.path.join(d, f"part_{i:06d}")
+                with open(p, "rb") as f:
+                    while True:
+                        buf = f.read(1024 * 1024)
+                        if not buf:
+                            break
+                        out.write(buf)
+                os.remove(p)
+        with open(assembled_path, "rb") as f:
+            raw = f.read()
     except Exception as e:
         logger.exception("Assemble failed: %s", e)
         return JSONResponse({"error": "assemble_failed"}, status_code=500)
-    # Cleanup parts promptly
-    try:
-        for i in range(total_chunks):
-            try:
-                os.remove(os.path.join(d, f"part_{i:06d}"))
-            except Exception:
-                pass
-        try:
-            os.remove(meta_path)
-        except Exception:
-            pass
-        try:
+    finally:
+        for leftover in (assembled_path, meta_path):
+            with suppress(Exception):
+                os.remove(leftover)
+        with suppress(Exception):
             os.rmdir(d)
-        except Exception:
-            pass
-    except Exception:
-        pass
 
-    # Now reuse the core logic from api_upload but with assembled bytes
-    item_id_local = item_id
-    session_id_local = session_id
-    file_like_name = name
-    file_size = len(raw)
-    checksum = sha1_hex(raw)
-    exif_created, exif_modified = read_exif_datetimes(raw)
-    created_at = exif_created or (datetime.fromtimestamp(last_modified / 1000) if last_modified else datetime.utcnow())
-    modified_at = exif_modified or created_at
-    created_iso = created_at.isoformat()
-    modified_iso = modified_at.isoformat()
-    device_asset_id = f"{file_like_name}-{last_modified or 0}-{file_size}"
-
-    # Local duplicate checks
-    if db_lookup_checksum(checksum):
-        await send_progress(session_id_local, item_id_local, "duplicate", 100, "Duplicate (by checksum - local cache)")
-        return JSONResponse({"status": "duplicate", "id": None}, status_code=200)
-    if db_lookup_device_asset(device_asset_id):
-        await send_progress(session_id_local, item_id_local, "duplicate", 100, "Already uploaded from this device (local cache)")
-        return JSONResponse({"status": "duplicate", "id": None}, status_code=200)
-
-    await send_progress(session_id_local, item_id_local, "checking", 2, "Checking duplicates…")
-    bulk = await immich_bulk_check([{ "id": item_id_local, "checksum": checksum }])
-    if bulk.get(item_id_local, {}).get("action") == "reject" and bulk[item_id_local].get("reason") == "duplicate":
-        asset_id = bulk[item_id_local].get("assetId")
-        db_insert_upload(checksum, file_like_name, file_size, device_asset_id, asset_id, created_iso)
-        await send_progress(session_id_local, item_id_local, "duplicate", 100, "Duplicate (server)", asset_id)
-        return JSONResponse({"status": "duplicate", "id": asset_id}, status_code=200)
-
-    safe_name2 = sanitize_filename(file_like_name)
-    def gen_encoder2() -> MultipartEncoder:
-        return MultipartEncoder(fields={
-            "assetData": (safe_name2, io.BytesIO(raw), content_type or "application/octet-stream"),
-            "deviceAssetId": device_asset_id,
-            "deviceId": f"python-{session_id_local}",
-            "fileCreatedAt": created_iso,
-            "fileModifiedAt": modified_iso,
-            "isFavorite": "false",
-            "filename": safe_name2,
-            "originalFileName": safe_name2,
-        })
-
-    # Invite validation/gating mirrors api_upload
-    target_album_id: Optional[str] = None
-    target_album_name: Optional[str] = None
-    if invite_token:
-        try:
-            conn = sqlite3.connect(SETTINGS.state_db)
-            cur = conn.cursor()
-            cur.execute("SELECT token, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), claimed_by_session, password_hash, COALESCE(disabled,0) FROM invites WHERE token = ?", (invite_token,))
-            row = cur.fetchone()
-            conn.close()
-        except Exception as e:
-            logger.exception("Invite lookup error: %s", e)
-            row = None
-        if not row:
-            await send_progress(session_id_local, item_id_local, "error", 100, "Invalid invite token")
-            return JSONResponse({"error": "invalid_invite"}, status_code=403)
-        _, album_id, album_name, max_uses, used_count, expires_at, claimed, claimed_by_session, password_hash, disabled = row
-        # Admin deactivation check
-        try:
-            if int(disabled) == 1:
-                await send_progress(session_id_local, item_id_local, "error", 100, "Invite disabled")
-                return JSONResponse({"error": "invite_disabled"}, status_code=403)
-        except Exception:
-            pass
-        if password_hash:
-            try:
-                ia = request.session.get("inviteAuth") or {}
-                if not ia.get(invite_token):
-                    await send_progress(session_id_local, item_id_local, "error", 100, "Password required")
-                    return JSONResponse({"error": "invite_password_required"}, status_code=403)
-            except Exception:
-                await send_progress(session_id_local, item_id_local, "error", 100, "Password required")
-                return JSONResponse({"error": "invite_password_required"}, status_code=403)
-        # expiry
-        if expires_at:
-            try:
-                if datetime.utcnow() > datetime.fromisoformat(expires_at):
-                    await send_progress(session_id_local, item_id_local, "error", 100, "Invite expired")
-                    return JSONResponse({"error": "invite_expired"}, status_code=403)
-            except Exception:
-                pass
-        try:
-            max_uses_int = int(max_uses) if max_uses is not None else -1
-        except Exception:
-            max_uses_int = -1
-        if max_uses_int == 1:
-            if claimed:
-                if claimed_by_session and claimed_by_session != session_id_local:
-                    await send_progress(session_id_local, item_id_local, "error", 100, "Invite already used")
-                    return JSONResponse({"error": "invite_claimed"}, status_code=403)
-            else:
-                try:
-                    connc = sqlite3.connect(SETTINGS.state_db)
-                    curc = connc.cursor()
-                    curc.execute(
-                        "UPDATE invites SET claimed = 1, claimed_at = CURRENT_TIMESTAMP, claimed_by_session = ? WHERE token = ? AND (claimed IS NULL OR claimed = 0)",
-                        (session_id_local, invite_token)
-                    )
-                    connc.commit()
-                    changed = connc.total_changes
-                    connc.close()
-                except Exception as e:
-                    logger.exception("Invite claim failed: %s", e)
-                    return JSONResponse({"error": "invite_claim_failed"}, status_code=500)
-                if changed == 0:
-                    try:
-                        conn2 = sqlite3.connect(SETTINGS.state_db)
-                        cur2 = conn2.cursor()
-                        cur2.execute("SELECT claimed_by_session FROM invites WHERE token = ?", (invite_token,))
-                        owner_row = cur2.fetchone()
-                        conn2.close()
-                        owner = owner_row[0] if owner_row else None
-                    except Exception:
-                        owner = None
-                    if not owner or owner != session_id_local:
-                        await send_progress(session_id_local, item_id_local, "error", 100, "Invite already used")
-                        return JSONResponse({"error": "invite_claimed"}, status_code=403)
-        else:
-            if (used_count or 0) >= (max_uses_int if max_uses_int >= 0 else 10**9):
-                await send_progress(session_id_local, item_id_local, "error", 100, "Invite already used up")
-                return JSONResponse({"error": "invite_exhausted"}, status_code=403)
-        target_album_id = album_id
-        target_album_name = album_name
-
-    await send_progress(session_id_local, item_id_local, "uploading", 0, "Uploading…")
-    sent = {"pct": 0}
-    def cb2(monitor: MultipartEncoderMonitor) -> None:
-        if monitor.len:
-            pct = int(monitor.bytes_read * 100 / monitor.len)
-            if pct != sent["pct"]:
-                sent["pct"] = pct
-                asyncio.create_task(send_progress(session_id_local, item_id_local, "uploading", pct))
-    encoder2 = gen_encoder2()
-    monitor2 = MultipartEncoderMonitor(encoder2, cb2)
-    headers = {"Accept": "application/json", "Content-Type": monitor2.content_type, "x-immich-checksum": checksum, **immich_headers(request)}
-    try:
-        r = requests.post(f"{SETTINGS.normalized_base_url}/assets", headers=headers, data=monitor2, timeout=120)
-        if r.status_code in (200, 201):
-            data_r = r.json()
-            asset_id = data_r.get("id")
-            db_insert_upload(checksum, file_like_name, file_size, device_asset_id, asset_id, created_iso)
-            status = data_r.get("status", "created")
-            if asset_id:
-                added = False
-                if invite_token:
-                    # Only add if invite specified an album; do not fallback to env default
-                    if target_album_id or target_album_name:
-                        added = await add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name)
-                        if added:
-                            status += f" (added to album '{target_album_name or target_album_id}')"
-                elif SETTINGS.album_name:
-                    if await add_asset_to_album(asset_id, request=request):
-                        status += f" (added to album '{SETTINGS.album_name}')"
-            await send_progress(session_id_local, item_id_local, "duplicate" if status == "duplicate" else "done", 100, status, asset_id)
-            if invite_token:
-                try:
-                    conn2 = sqlite3.connect(SETTINGS.state_db)
-                    cur2 = conn2.cursor()
-                    cur2.execute("SELECT max_uses FROM invites WHERE token = ?", (invite_token,))
-                    row_mu = cur2.fetchone()
-                    mx = None
-                    try:
-                        mx = int(row_mu[0]) if row_mu and row_mu[0] is not None else None
-                    except Exception:
-                        mx = None
-                    if mx == 1:
-                        cur2.execute("UPDATE invites SET used_count = 1 WHERE token = ?", (invite_token,))
-                    else:
-                        cur2.execute("UPDATE invites SET used_count = used_count + 1 WHERE token = ?", (invite_token,))
-                    conn2.commit()
-                    conn2.close()
-                except Exception as e:
-                    logger.exception("Failed to increment invite usage: %s", e)
-            # Log uploader identity and file metadata
-            try:
-                connlg = sqlite3.connect(SETTINGS.state_db)
-                curlg = connlg.cursor()
-                curlg.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS upload_events (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        token TEXT,
-                        uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        ip TEXT,
-                        user_agent TEXT,
-                        fingerprint TEXT,
-                        filename TEXT,
-                        size INTEGER,
-                        checksum TEXT,
-                        immich_asset_id TEXT
-                    );
-                    """
-                )
-                ip = None
-                try:
-                    ip = (request.client.host if request and request.client else None) or request.headers.get('x-forwarded-for')
-                except Exception:
-                    ip = None
-                ua = request.headers.get('user-agent', '') if request else ''
-                curlg.execute(
-                    "INSERT INTO upload_events (token, ip, user_agent, fingerprint, filename, size, checksum, immich_asset_id) VALUES (?,?,?,?,?,?,?,?)",
-                    (invite_token or '', ip, ua, fingerprint or '', file_like_name, file_size, checksum, asset_id or None)
-                )
-                connlg.commit()
-                connlg.close()
-            except Exception:
-                pass
-            return JSONResponse({"id": asset_id, "status": status}, status_code=200)
-        else:
-            try:
-                msg = r.json().get("message", r.text)
-            except Exception:
-                msg = r.text
-            await send_progress(session_id_local, item_id_local, "error", 100, msg)
-            return JSONResponse({"error": msg}, status_code=400)
-    except Exception:
-        logger.exception("chunk upload failed (session=%s item=%s)", session_id_local, item_id_local)
-        await send_progress(session_id_local, item_id_local, "error", 100, "upload failed")
-        return JSONResponse({"error": "upload failed"}, status_code=500)
+    return await process_upload(
+        request,
+        raw=raw,
+        orig_name=name,
+        content_type=content_type,
+        item_id=item_id,
+        session_id=session_id,
+        last_modified=last_modified,
+        invite_token=invite_token,
+        fingerprint=fingerprint,
+    )
 
 @app.post("/api/album/reset")
 async def api_album_reset() -> dict:
@@ -1233,94 +944,31 @@ async def api_albums_create(request: Request) -> JSONResponse:
     return JSONResponse({"error": "unexpected_status", "status": r.status_code, "body": r.text}, status_code=502)
 
 # ---------- Invites (one-time/expiring links) ----------
+# Tables are created at startup by db.init_db().
 
-def ensure_invites_table() -> None:
+def hash_password(pw: str) -> str:
+    """PBKDF2-SHA256 hash for invite passwords."""
+    if not pw:
+        return ""
+    salt = os.urandom(16)
+    iterations = 200_000
+    dk = hashlib.pbkdf2_hmac('sha256', pw.encode('utf-8'), salt, iterations)
+    return f"pbkdf2_sha256${iterations}${binascii.hexlify(salt).decode()}${binascii.hexlify(dk).decode()}"
+
+def verify_password(stored: str, pw: Optional[str]) -> bool:
+    """Verify a password against a stored pbkdf2_sha256 hash."""
+    if not pw:
+        return False
     try:
-        conn = sqlite3.connect(SETTINGS.state_db)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS invites (
-                token TEXT PRIMARY KEY,
-                album_id TEXT,
-                album_name TEXT,
-                max_uses INTEGER DEFAULT 1,
-                used_count INTEGER DEFAULT 0,
-                expires_at TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-        # Attempt to add new columns for claiming semantics
-        try:
-            cur.execute("ALTER TABLE invites ADD COLUMN claimed INTEGER DEFAULT 0")
-        except Exception:
-            pass
-        try:
-            cur.execute("ALTER TABLE invites ADD COLUMN claimed_at TEXT")
-        except Exception:
-            pass
-        try:
-            cur.execute("ALTER TABLE invites ADD COLUMN claimed_by_session TEXT")
-        except Exception:
-            pass
-        # Optional password protection for invites
-        try:
-            cur.execute("ALTER TABLE invites ADD COLUMN password_hash TEXT")
-        except Exception:
-            pass
-        # Ownership and management fields (best-effort migrations)
-        try:
-            cur.execute("ALTER TABLE invites ADD COLUMN owner_user_id TEXT")
-        except Exception:
-            pass
-        try:
-            cur.execute("ALTER TABLE invites ADD COLUMN owner_email TEXT")
-        except Exception:
-            pass
-        try:
-            cur.execute("ALTER TABLE invites ADD COLUMN owner_name TEXT")
-        except Exception:
-            pass
-        try:
-            cur.execute("ALTER TABLE invites ADD COLUMN name TEXT")
-        except Exception:
-            pass
-        try:
-            cur.execute("ALTER TABLE invites ADD COLUMN disabled INTEGER DEFAULT 0")
-        except Exception:
-            pass
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.exception("Failed to ensure invites table: %s", e)
-
-ensure_invites_table()
-
-# ---------- Platform Cookies (for yt-dlp authenticated downloads) ----------
-
-def ensure_platform_cookies_table() -> None:
-    """Create the platform_cookies table for storing yt-dlp authentication cookies."""
-    try:
-        conn = sqlite3.connect(SETTINGS.state_db)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS platform_cookies (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                platform TEXT NOT NULL UNIQUE,
-                cookie_string TEXT NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.exception("Failed to ensure platform_cookies table: %s", e)
-
-ensure_platform_cookies_table()
+        algo, iter_s, salt_hex, hash_hex = stored.split("$")
+        if algo != 'pbkdf2_sha256':
+            return False
+        iterations = int(iter_s)
+        salt = binascii.unhexlify(salt_hex)
+        dk = hashlib.pbkdf2_hmac('sha256', pw.encode('utf-8'), salt, iterations)
+        return binascii.hexlify(dk).decode() == hash_hex
+    except Exception:
+        return False
 
 @app.post("/api/invites")
 async def api_invites_create(request: Request) -> JSONResponse:
@@ -1348,7 +996,7 @@ async def api_invites_create(request: Request) -> JSONResponse:
     # If only album_name provided, resolve or create now to fix to an ID
     resolved_album_id = None
     if not album_id and album_name:
-        resolved_album_id = get_or_create_album(request=request, album_name_override=album_name)
+        resolved_album_id = await get_or_create_album(request=request, album_name_override=album_name)
     else:
         resolved_album_id = album_id
     # Compute expiry
@@ -1356,28 +1004,12 @@ async def api_invites_create(request: Request) -> JSONResponse:
     if expires_days is not None:
         try:
             days = int(expires_days)
-            expires_at = (datetime.utcnow()).replace(microsecond=0).isoformat()
-            # Use timedelta
-            from datetime import timedelta
             expires_at = (datetime.utcnow() + timedelta(days=days)).replace(microsecond=0).isoformat()
         except Exception:
             expires_at = None
     # Generate token
     import uuid
     token = uuid.uuid4().hex
-    # Prepare password hash, if provided
-    def hash_password(pw: str) -> str:
-        try:
-            if not pw:
-                return ""
-            import os as _os
-            import binascii as _binascii
-            salt = _os.urandom(16)
-            iterations = 200_000
-            dk = hashlib.pbkdf2_hmac('sha256', pw.encode('utf-8'), salt, iterations)
-            return f"pbkdf2_sha256${iterations}${_binascii.hexlify(salt).decode()}${_binascii.hexlify(dk).decode()}"
-        except Exception:
-            return ""
     pw_hash = hash_password(invite_password or "") if (invite_password and str(invite_password).strip()) else None
     # Owner info from session
     owner_user_id = str(request.session.get("userId") or "")
@@ -1388,7 +1020,7 @@ async def api_invites_create(request: Request) -> JSONResponse:
     now_tag = datetime.utcnow().strftime("%Y%m%d-%H%M")
     default_link_name = f"{album_name or 'NoAlbum'}-{now_tag}"
     try:
-        conn = sqlite3.connect(SETTINGS.state_db)
+        conn = db.connect()
         cur = conn.cursor()
         if pw_hash:
             cur.execute(
@@ -1446,7 +1078,7 @@ async def api_invites_list(request: Request) -> JSONResponse:
     elif sort in ("-name",):
         sort_sql = "name DESC"
     try:
-        conn = sqlite3.connect(SETTINGS.state_db)
+        conn = db.connect()
         cur = conn.cursor()
         if q:
             like = f"%{q}%"
@@ -1563,7 +1195,6 @@ async def api_invite_update(token: str, request: Request) -> JSONResponse:
         else:
             try:
                 days = int((body or {}).get("expiresDays"))
-                from datetime import timedelta
                 expires_at = (datetime.utcnow() + timedelta(days=days)).replace(microsecond=0).isoformat()
             except Exception:
                 expires_at = None
@@ -1573,23 +1204,15 @@ async def api_invite_update(token: str, request: Request) -> JSONResponse:
     if "password" in (body or {}):
         pw = str((body or {}).get("password") or "").strip()
         if pw:
-            # Reuse hasher from above
-            def _hash_pw(pw: str) -> str:
-                import os as _os
-                import binascii as _binascii
-                salt = _os.urandom(16)
-                iterations = 200_000
-                dk = hashlib.pbkdf2_hmac('sha256', pw.encode('utf-8'), salt, iterations)
-                return f"pbkdf2_sha256${iterations}${_binascii.hexlify(salt).decode()}${_binascii.hexlify(dk).decode()}"
             fields.append("password_hash = ?")
-            params.append(_hash_pw(pw))
+            params.append(hash_password(pw))
         else:
             fields.append("password_hash = NULL")
     # Reset usage
     reset_usage = bool((body or {}).get("resetUsage"))
     try:
         if fields:
-            conn = sqlite3.connect(SETTINGS.state_db)
+            conn = db.connect()
             cur = conn.cursor()
             cur.execute(
                 f"UPDATE invites SET {', '.join(fields)} WHERE token = ? AND owner_user_id = ?",
@@ -1625,7 +1248,7 @@ async def api_invites_bulk(request: Request) -> JSONResponse:
     val = 1 if action == "disable" else 0
     owner_user_id = str(request.session.get("userId") or "")
     try:
-        conn = sqlite3.connect(SETTINGS.state_db)
+        conn = db.connect()
         cur = conn.cursor()
         # Build query with correct number of placeholders
         placeholders = ",".join(["?"] * len(tokens))
@@ -1658,7 +1281,7 @@ async def api_invites_delete(request: Request) -> JSONResponse:
         return JSONResponse({"error": "missing_tokens"}, status_code=400)
     owner_user_id = str(request.session.get("userId") or "")
     try:
-        conn = sqlite3.connect(SETTINGS.state_db)
+        conn = db.connect()
         cur = conn.cursor()
         placeholders = ",".join(["?"] * len(tokens))
         # Delete upload events first to avoid orphan rows
@@ -1686,7 +1309,7 @@ async def api_invite_uploads(token: str, request: Request) -> JSONResponse:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     owner_user_id = str(request.session.get("userId") or "")
     try:
-        conn = sqlite3.connect(SETTINGS.state_db)
+        conn = db.connect()
         cur = conn.cursor()
         # Verify ownership
         cur.execute("SELECT 1 FROM invites WHERE token = ? AND owner_user_id = ?", (token, owner_user_id))
@@ -1716,15 +1339,12 @@ async def api_invite_uploads(token: str, request: Request) -> JSONResponse:
 
 @app.get("/invite/{token}", response_class=HTMLResponse)
 async def invite_page(token: str, request: Request) -> HTMLResponse:
-    # If public invites disabled and no user session, require login
-    #if  not request.session.get("accessToken"):
-    #    return RedirectResponse(url="/login")
     return FileResponse(os.path.join(FRONTEND_DIR, "invite.html"))
 
 @app.get("/api/invite/{token}")
 async def api_invite_info(token: str, request: Request) -> JSONResponse:
     try:
-        conn = sqlite3.connect(SETTINGS.state_db)
+        conn = db.connect()
         cur = conn.cursor()
         cur.execute("SELECT token, album_id, album_name, max_uses, used_count, expires_at, COALESCE(claimed,0), claimed_at, password_hash, COALESCE(disabled,0), name FROM invites WHERE token = ?", (token,))
         row = cur.fetchone()
@@ -1824,7 +1444,7 @@ async def api_invite_auth(token: str, request: Request) -> JSONResponse:
         body = None
     provided = (body or {}).get("password") if isinstance(body, dict) else None
     try:
-        conn = sqlite3.connect(SETTINGS.state_db)
+        conn = db.connect()
         cur = conn.cursor()
         cur.execute("SELECT password_hash FROM invites WHERE token = ?", (token,))
         row = cur.fetchone()
@@ -1841,21 +1461,6 @@ async def api_invite_auth(token: str, request: Request) -> JSONResponse:
         ia[token] = True
         request.session["inviteAuth"] = ia
         return JSONResponse({"ok": True, "authorized": True})
-    # verify
-    def verify_password(stored: str, pw: Optional[str]) -> bool:
-        if not pw:
-            return False
-        try:
-            algo, iter_s, salt_hex, hash_hex = stored.split("$")
-            if algo != 'pbkdf2_sha256':
-                return False
-            iterations = int(iter_s)
-            import binascii as _binascii
-            salt = _binascii.unhexlify(salt_hex)
-            dk = hashlib.pbkdf2_hmac('sha256', pw.encode('utf-8'), salt, iterations)
-            return _binascii.hexlify(dk).decode() == hash_hex
-        except Exception:
-            return False
     if not verify_password(password_hash, provided):
         return JSONResponse({"error": "invalid_password"}, status_code=403)
     ia = request.session.get("inviteAuth") or {}
@@ -1936,8 +1541,3 @@ async def api_cookies_delete(request: Request, platform: str) -> JSONResponse:
     if deleted:
         return JSONResponse({"ok": True, "deleted": platform})
     return JSONResponse({"error": "not_found"}, status_code=404)
-
-"""
-Note: Do not run this module directly. Use `python main.py` from
-project root, which starts `uvicorn app.app:app` with reload.
-"""
