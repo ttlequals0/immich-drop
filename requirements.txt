@@ -28,5 +28,5 @@ urllib3==2.7.0
 uvicorn==0.51.0
 watchfiles==1.2.0
 websockets==16.1
-yt-dlp[default,curl-cffi]==2026.6.9
-gallery-dl==1.32.3
+yt-dlp[default,curl-cffi]==2026.7.4
+gallery-dl==1.32.5
