@@ -477,6 +477,7 @@ async def api_config() -> dict:
         "chunked_uploads_enabled": SETTINGS.chunked_uploads_enabled,
         "chunk_size_mb": SETTINGS.chunk_size_mb,
         "version": VERSION,
+        "social_media_uploads": SETTINGS.social_media_uploads,
     }
 
 @app.websocket("/ws")
