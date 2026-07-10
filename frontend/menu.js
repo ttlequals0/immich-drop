@@ -92,9 +92,9 @@
       qrImg.src = '/api/qr?text='+encodeURIComponent(link);
       if (j && j.token) { try { LAST_CREATED_TOKEN = j.token; } catch(e2){} }
       try { await loadInvites(); } catch(e2){}
+      days.value = '';
+      passwordInput.value = '';
     }catch(err){ showResult('err'); }
-    days.value = '';
-    passwordInput.value = '';
   };
 
   btnCopy.onclick = function(){
@@ -250,7 +250,7 @@
           if (items.length){
             var tbl = '<table class="data-table"><thead><tr><th>When</th><th>IP</th><th>Filename</th><th>Size</th></tr></thead><tbody>';
             items.forEach(function(it){
-              tbl += '<tr><td>'+escAttr(new Date(it.uploadedAt).toLocaleString())+'</td><td>'+escAttr(it.ip)+'</td><td>'+escAttr(it.filename)+'</td><td>'+escAttr(formatBytes(it.size||0).toLocaleString())+'</td></tr>';
+              tbl += '<tr><td>'+escAttr(new Date(it.uploadedAt).toLocaleString())+'</td><td>'+escAttr(it.ip)+'</td><td>'+escAttr(it.filename)+'</td><td>'+escAttr(formatBytes(it.size||0))+'</td></tr>';
             });
             tbl += '</tbody></table>';
             body.innerHTML = tbl;
