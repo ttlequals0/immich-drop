@@ -84,9 +84,11 @@ SETTINGS: Settings = load_settings()
 # Basic logging setup using settings
 logging.basicConfig(level=SETTINGS.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 # Third-party libraries log large volumes at DEBUG; keep them at WARNING
-# regardless of the app LOG_LEVEL.
-for _noisy in ("PIL", "python_multipart", "httpcore", "httpx", "urllib3", "websockets", "charset_normalizer"):
+# regardless of the app LOG_LEVEL. httpx stays at INFO: its one-line-per-request
+# entries are the only record of individual Immich API calls.
+for _noisy in ("PIL", "python_multipart", "httpcore", "urllib3", "websockets", "charset_normalizer"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.INFO)
 logger = logging.getLogger("immich_drop")
 
 # Cookie-based session for short-lived auth token storage (no persistence)

@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.1] - 2026-07-11
+
+### Fixed
+- Upload progress mislabeling: the browser-to-server transfer displayed as a
+  stuck "Checking" phase because fetch() has no upload-progress API. Whole-file
+  uploads now use XMLHttpRequest with upload.onprogress and show a real
+  "Sending to server... N%" phase; "Checking" now only covers the actual
+  sub-second duplicate check. Progress restarts per phase (sending ->
+  checking -> uploading) instead of being globally monotonic.
+
+### Changed
+- httpx request logging restored to INFO (one line per Immich API call) for
+  timing visibility; the WARNING cap from 1.8.0 remains for the noisy
+  libraries (PIL, python_multipart, httpcore, urllib3, websockets).
+
 ## [1.8.0] - 2026-07-10
 
 ### Fixed
