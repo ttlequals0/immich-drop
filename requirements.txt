@@ -1,5 +1,5 @@
 annotated-types==0.7.0
-anyio==4.14.1
+anyio==4.14.2
 certifi==2026.6.17
 charset-normalizer==3.4.9
 click==8.4.2
@@ -13,7 +13,7 @@ idna==3.18
 itsdangerous==2.2.0
 pillow==12.3.0
 pydantic==2.13.4
-pydantic_core==2.46.4
+pydantic_core==2.47.0
 python-dotenv==1.2.2
 python-multipart==0.0.32
 PyYAML==6.0.3
