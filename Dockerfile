@@ -1,10 +1,21 @@
 # syntax=docker/dockerfile:1.7
-FROM python:3.11-slim
-
-WORKDIR /immich_drop
+# ---- Builder Stage ----
+FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+
+WORKDIR /install
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
+
+# ---- Final Stage ----
+FROM python:3.11-slim
 
 # Pull in the latest debian security patches.
 RUN apt-get update \
@@ -12,28 +23,32 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Static ffmpeg binary -- avoids dragging in mesa, libssh, libcups, libgbm,
-# systemd, libmbedcrypto, etc. via the debian ffmpeg meta-package, every one
-# of which has unpatched HIGH/CRITICAL CVEs in trixie. yt-dlp only uses the
-# ffmpeg/ffprobe binaries, so a static build is functionally equivalent.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /immich_drop
+
+# Copy static ffmpeg binaries
 COPY --from=mwader/static-ffmpeg:7.1 /ffmpeg /usr/local/bin/ffmpeg
 COPY --from=mwader/static-ffmpeg:7.1 /ffprobe /usr/local/bin/ffprobe
 
-# Install Python deps
-COPY requirements.txt /immich_drop/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r /immich_drop/requirements.txt
+# Copy virtualenv from builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Create a non-root user
+RUN groupadd -g 1000 appuser && \
+    useradd -u 1000 -g appuser -s /bin/bash -m appuser
 
 # Copy app code
 COPY . /immich_drop
 
-# Ensure all source files are readable (fix permission issues)
-RUN chmod -R 644 /immich_drop/*.py /immich_drop/app/*.py /immich_drop/frontend/* && \
-    chmod 755 /immich_drop /immich_drop/app /immich_drop/frontend
+# Create data directory and set permissions
+RUN mkdir -p /data && \
+    chown -R appuser:appuser /immich_drop /data
 
-# Data dir for SQLite (state.db)
-RUN mkdir -p /data
-VOLUME ["/data"]
+# Switch to non-root user
+USER appuser
 
 # Defaults (can be overridden via compose env)
 ENV HOST=0.0.0.0 \
