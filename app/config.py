@@ -29,6 +29,8 @@ class Settings:
     download_concurrency: int = 1
     instagram_ytdlp_fallback: bool = False
     social_media_uploads: bool = True
+    testconnection_show_hostname: bool = True
+    testconnection: bool = True
 
     @property
     def normalized_base_url(self) -> str:
@@ -71,6 +73,8 @@ def load_settings() -> Settings:
         download_concurrency = 1
     instagram_ytdlp_fallback = as_bool(os.getenv("INSTAGRAM_YTDLP_FALLBACK", "false"), False)
     social_media_uploads = as_bool(os.getenv("SOCIAL_MEDIA_UPLOADS_ENABLED", "true"), True)
+    testconnection_show_hostname = as_bool(os.getenv("TESTCONNECTION_SHOW_HOSTNAME", "true"), True)
+    testconnection = as_bool(os.getenv("TESTCONNECTION", "true"), True)
     return Settings(
         immich_base_url=base,
         immich_api_key=api_key,
@@ -88,4 +92,6 @@ def load_settings() -> Settings:
         download_concurrency=download_concurrency,
         instagram_ytdlp_fallback=instagram_ytdlp_fallback,
         social_media_uploads=social_media_uploads,
+        testconnection_show_hostname=testconnection_show_hostname,
+        testconnection=testconnection,
     )

@@ -67,7 +67,8 @@
           pingStatus.className = 'ml-2 text-sm ' + (j.ok ? 'text-green-600' : 'text-red-600');
         }
         if(j.ok){
-          let text = `Connected to Immich at ${j.base_url}`;
+          let text = `Connected to Immich`;
+          if (j.base_url) text +=  ` at ${j.base_url}`;
           if (j.album_name) text += ` | Uploading to album: "${j.album_name}"`;
           showBanner(text, 'ok');
         }
@@ -87,9 +88,13 @@
         const enabled = !!(j && j.public_upload_page_enabled);
         if (linkPublic) linkPublic.classList.toggle('hidden', !enabled);
         if (linkHome) linkHome.classList.toggle('hidden', !enabled);
+
+        if (j.testconnection && btnPing) btnPing.classList.toggle('hidden', false); 
+
       }catch{
         if (linkPublic) linkPublic.classList.add('hidden');
         if (linkHome) linkHome.classList.add('hidden');
+        if (btnPing) btnPing.classList.add('hidden'); 
       }
     })();
   }
