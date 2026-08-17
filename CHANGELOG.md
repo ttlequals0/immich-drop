@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.2] - 2026-08-17
+
+### Fixed
+- TikTok downloads failed with "Unexpected response from webpage request".
+  TikTok began rejecting webpage requests that carry no Referer header around
+  2026-08-10; yt-dlp's extractor sends none and the upstream fix
+  (yt-dlp/yt-dlp#17437) is still unmerged, so the TikTok branch now passes
+  `--referer https://www.tiktok.com/`. Not fixed by a yt-dlp bump: 2026.7.4 is
+  the current release and its TikTok extractor is unchanged since March.
+- Chunked upload completion returned 500 instead of 400 when `total_chunks`
+  was not an integer.
+
+### Security
+- Chunk upload endpoints wrote to disk before any validation. `/api/upload/chunk/init`
+  and `/api/upload/chunk` now reject requests when chunked uploads are disabled
+  and validate a supplied invite token (existence, disabled, expiry, exhaustion)
+  before accepting bytes. The check is read-only, so one-time invites are still
+  claimed at completion rather than at init.
+- Abandoned chunk directories are now swept after 6 hours by the existing
+  background cleanup loop. Cleanup previously ran only on the completion path,
+  so any upload that was started and never finished left its parts on /data
+  permanently.
+- `_chunk_dir` now asserts the resolved path is contained in `CHUNK_ROOT`,
+  using the previously unused `_CHUNK_ROOT_RESOLVED`.
+
+### Changed
+- Docker image ships a HEALTHCHECK (#77, thanks @knom). It reads `PORT` and
+  targets `/api/config`, which does not redirect. The duplicate healthcheck in
+  docker-compose.yml.example and the README is removed; the image supplies it.
+- "Test connection" button can be hidden, and the upstream Immich hostname can
+  be hidden from the banner (#76, thanks @knom), via `TEST_CONNECTION_ENABLED`
+  and `TEST_CONNECTION_SHOW_HOSTNAME`. Both default to true.
+
+### Dependencies
+- annotated-types 0.7.0 -> 0.8.0, anyio 4.14.1 -> 4.14.2,
+  certifi 2026.6.17 -> 2026.7.22, charset-normalizer 3.4.9 -> 3.5.0,
+  fastapi 0.139.0 -> 0.141.1, starlette 1.3.1 -> 1.6.0,
+  typing-inspection 0.4.2 -> 0.4.4, uvicorn 0.51.0 -> 0.52.3,
+  gallery-dl 1.32.5 -> 1.32.9.
+- pydantic_core held at 2.46.4. Dependabot PR #75 proposed 2.48.0, which cannot
+  resolve: pydantic 2.13.4 pins pydantic-core==2.46.4 exactly.
+
 ## [1.8.1] - 2026-07-11
 
 ### Fixed

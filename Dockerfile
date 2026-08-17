@@ -42,9 +42,7 @@ ENV HOST=0.0.0.0 \
 
 EXPOSE 8080
 
-# Reads PORT so the check follows a non-default port; /api/config is a cheap
-# JSON response that never redirects, unlike / which 302s to /login when the
-# public upload page is disabled.
+# /api/config never redirects; / 302s to /login when the public page is off
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
   CMD python -c 'import os,urllib.request; urllib.request.urlopen("http://127.0.0.1:%s/api/config" % os.getenv("PORT","8080"), timeout=3).read()'
 
