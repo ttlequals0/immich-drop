@@ -100,6 +100,9 @@ initDarkMode();
         CFG.chunked_uploads_enabled = !!j.chunked_uploads_enabled;
         const n = parseInt(j.chunk_size_mb, 10);
         if (!Number.isNaN(n) && n > 0) CFG.chunk_size_mb = n;
+        // Button ships hidden; only reveal it when the endpoint is live
+        const bp = document.getElementById('btnPing');
+        if (bp && j.test_connection_enabled) bp.classList.remove('hidden');
       }
     }
   }catch{}
@@ -401,10 +404,8 @@ if (btnPing) btnPing.onclick = async () => {
     pingStatus.textContent = j.ok ? 'Connected' : 'No connection';
     pingStatus.className = 'ml-2 text-sm ' + (j.ok ? 'text-green-600' : 'text-red-600');
     if(j.ok){
-      let bannerText = "Connected to Immich";
-      
-      if (j.base_url)
-        bannerText += ` at ${j.base_url}`;
+      let bannerText = 'Connected to Immich';
+      if (j.base_url) bannerText += ` at ${j.base_url}`;
       if(j.album_name) {
         bannerText += ` | Uploading to album: "${j.album_name}"`;
       }
