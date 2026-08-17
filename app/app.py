@@ -394,10 +394,12 @@ async def favicon() -> Response:
 @app.post("/api/ping")
 async def api_ping() -> dict:
     """Connectivity test endpoint used by the UI to display a temporary banner."""
+    if not SETTINGS.test_connection_enabled:
+        return {"ok": False, "disabled": True}
     return {
         "ok": await immich_ping(),
-        "base_url": SETTINGS.normalized_base_url,
-        "album_name": SETTINGS.album_name if SETTINGS.album_name else None
+        "base_url": SETTINGS.normalized_base_url if SETTINGS.test_connection_show_hostname else None,
+        "album_name": SETTINGS.album_name if SETTINGS.album_name else None,
     }
 
 @app.get("/api/config")
@@ -409,6 +411,7 @@ async def api_config() -> dict:
         "chunk_size_mb": SETTINGS.chunk_size_mb,
         "version": VERSION,
         "social_media_uploads": SETTINGS.social_media_uploads,
+        "test_connection_enabled": SETTINGS.test_connection_enabled,
     }
 
 @app.websocket("/ws")
