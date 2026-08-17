@@ -42,4 +42,7 @@ ENV HOST=0.0.0.0 \
 
 EXPOSE 8080
 
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/').read()"
+
 CMD ["python", "main.py"]
