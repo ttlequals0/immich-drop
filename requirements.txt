@@ -1,7 +1,7 @@
 annotated-types==0.8.0
 anyio==4.14.2
 certifi==2026.7.22
-charset-normalizer==3.5.0
+charset-normalizer==3.5.1
 click==8.4.2
 colorama==0.4.6
 fastapi==0.141.1
@@ -13,7 +13,7 @@ idna==3.18
 itsdangerous==2.2.0
 pillow==12.3.0
 pydantic==2.13.4
-pydantic_core==2.46.4
+pydantic_core==2.48.0
 python-dotenv==1.2.2
 python-multipart==0.0.32
 PyYAML==6.0.3
