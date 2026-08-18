@@ -2,6 +2,58 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.2] - 2026-08-17
+
+### Fixed
+- TikTok downloads failed with "Unexpected response from webpage request".
+  TikTok began rejecting webpage requests that carry no Referer header around
+  2026-08-10; yt-dlp's extractor sends none and the upstream fix
+  (yt-dlp/yt-dlp#17437) is still unmerged, so the TikTok branch now passes
+  `--referer https://www.tiktok.com/`. A yt-dlp bump does not help here.
+  2026.7.4 is the current release and its TikTok extractor is unchanged
+  since March.
+- Chunked upload completion returned 500 instead of 400 when `total_chunks`
+  was not an integer.
+
+### Security
+- Chunk upload endpoints wrote to disk before any validation.
+  `/api/upload/chunk/init` and `/api/upload/chunk` now reject requests when
+  chunked uploads are disabled, and validate a supplied invite token
+  (existence, disabled, expiry, exhaustion) before accepting bytes. The check
+  is read-only, so one-time invites are still claimed at completion.
+- Abandoned chunk directories are swept after 6 hours by the existing
+  background cleanup loop. Cleanup previously ran only on the completion path,
+  so an upload that was started and never finished left its parts on /data
+  permanently.
+- `_chunk_dir` normalizes the joined path and checks it against the chunk root
+  prefix, using the previously unused `_CHUNK_ROOT_RESOLVED`.
+- Base image moved from `python:3.11-slim` (Debian 13.6) to
+  `python:3.11-alpine`. Trivy found 14 HIGH CVEs on the Debian base, in
+  perl-base, ncurses, gzip and libacl1, none of which Debian has patched; all
+  are marked `affected` or `fix_deferred`. The Alpine image scans clean at 0
+  HIGH/CRITICAL and is 475MB against 563MB. Every pinned dependency installs
+  from a musl wheel, so the image gains no compiler.
+- pip is removed after dependency installation. Its vendored `msgpack` and
+  `pkg_resources` copies were the only findings in the Python layer, and
+  nothing at runtime uses pip.
+
+### Changed
+- Docker image ships a HEALTHCHECK (#77, thanks @knom). It reads `PORT` and
+  targets `/api/config`, which does not redirect. The duplicate healthcheck in
+  docker-compose.yml.example and the README is removed; the image supplies it.
+- "Test connection" button can be hidden, and the upstream Immich hostname can
+  be hidden from the banner (#76, thanks @knom), via `TEST_CONNECTION_ENABLED`
+  and `TEST_CONNECTION_SHOW_HOSTNAME`. Both default to true.
+
+### Dependencies
+- annotated-types 0.7.0 -> 0.8.0, anyio 4.14.1 -> 4.14.2,
+  certifi 2026.6.17 -> 2026.7.22, charset-normalizer 3.4.9 -> 3.5.0,
+  fastapi 0.139.0 -> 0.141.1, starlette 1.3.1 -> 1.6.0,
+  typing-inspection 0.4.2 -> 0.4.4, uvicorn 0.51.0 -> 0.52.3,
+  gallery-dl 1.32.5 -> 1.32.9.
+- pydantic_core held at 2.46.4. Dependabot PR #75 proposed 2.48.0, which cannot
+  resolve: pydantic 2.13.4 pins pydantic-core==2.46.4 exactly.
+
 ## [1.8.1] - 2026-07-11
 
 ### Fixed

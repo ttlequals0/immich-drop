@@ -90,13 +90,7 @@ services:
     volumes:
       - immich_drop_data:/data
 
-    # Simple healthcheck
-    healthcheck:
-      test: ["CMD-SHELL", "python - <<'PY'\nimport os,urllib.request,sys; url=f\"http://127.0.0.1:{os.getenv('PORT','8080')}/\";\ntry: urllib.request.urlopen(url, timeout=3); sys.exit(0)\nexcept Exception: sys.exit(1)\nPY"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+    # Healthcheck ships in the image; override here only if you need different timings
 
 volumes:
   immich_drop_data:

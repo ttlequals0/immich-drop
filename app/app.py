@@ -17,6 +17,8 @@ import json
 import hashlib
 import os
 import re
+import shutil
+import time
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -56,6 +58,8 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(60)
             with suppress(Exception):
                 cleanup_expired()
+            with suppress(Exception):
+                cleanup_stale_chunks()
 
     cleanup_task = asyncio.create_task(_job_cleanup_loop())
     yield
@@ -109,6 +113,9 @@ try:
 except Exception:
     pass
 _CHUNK_ROOT_RESOLVED = Path(CHUNK_ROOT).resolve()
+_CHUNK_ROOT_PREFIX = str(_CHUNK_ROOT_RESOLVED) + os.sep
+# Age at which abandoned chunk directories are swept
+CHUNK_TTL_SECONDS = 6 * 60 * 60
 
 # Album cache
 ALBUM_ID: Optional[str] = None
@@ -712,7 +719,70 @@ def _chunk_dir(session_id: str, item_id: str) -> str:
     iid = (item_id or "").strip()
     if not _ID_RE.match(sid) or not _ID_RE.match(iid):
         raise HTTPException(status_code=400, detail="invalid id")
-    return os.path.join(CHUNK_ROOT, sid, iid)
+    path = os.path.normpath(os.path.join(_CHUNK_ROOT_PREFIX, sid, iid))
+    if not path.startswith(_CHUNK_ROOT_PREFIX):
+        raise HTTPException(status_code=400, detail="invalid id")
+    return path
+
+
+def _guard_chunked_upload(invite_token: Optional[str]) -> Optional[JSONResponse]:
+    """Reject chunk writes before any bytes hit disk.
+
+    Read-only: one-time invites are still claimed at completion.
+    """
+    if not SETTINGS.chunked_uploads_enabled:
+        return JSONResponse({"error": "chunked_uploads_disabled"}, status_code=403)
+    if not invite_token:
+        return None
+    try:
+        conn = db.connect()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT expires_at, COALESCE(disabled,0), max_uses, COALESCE(used_count,0) FROM invites WHERE token = ?",
+            (invite_token,),
+        )
+        row = cur.fetchone()
+        conn.close()
+    except Exception as e:
+        logger.exception("Invite precheck failed: %s", e)
+        return JSONResponse({"error": "invite_lookup_failed"}, status_code=500)
+    if not row:
+        return JSONResponse({"error": "invalid_invite"}, status_code=403)
+    expires_at, disabled, max_uses, used_count = row
+    if int(disabled or 0) == 1:
+        return JSONResponse({"error": "invite_disabled"}, status_code=403)
+    if expires_at:
+        with suppress(Exception):
+            if datetime.utcnow() > datetime.fromisoformat(expires_at):
+                return JSONResponse({"error": "invite_expired"}, status_code=403)
+    try:
+        max_uses_int = int(max_uses) if max_uses is not None else -1
+    except (TypeError, ValueError):
+        max_uses_int = -1
+    if max_uses_int >= 0 and int(used_count or 0) >= max_uses_int and max_uses_int != 1:
+        return JSONResponse({"error": "invite_exhausted"}, status_code=403)
+    return None
+
+
+def cleanup_stale_chunks() -> int:
+    """Delete chunk directories older than CHUNK_TTL_SECONDS."""
+    removed = 0
+    cutoff = time.time() - CHUNK_TTL_SECONDS
+    for session_dir in Path(CHUNK_ROOT).glob("*"):
+        if not session_dir.is_dir():
+            continue
+        for item_dir in session_dir.glob("*"):
+            if not item_dir.is_dir():
+                continue
+            with suppress(Exception):
+                if item_dir.stat().st_mtime < cutoff:
+                    shutil.rmtree(item_dir)
+                    removed += 1
+        with suppress(Exception):
+            session_dir.rmdir()  # only succeeds when empty
+    if removed:
+        logger.info("Removed %d stale chunk director%s", removed, "y" if removed == 1 else "ies")
+    return removed
 
 @app.post("/api/upload/chunk/init")
 async def api_upload_chunk_init(request: Request) -> JSONResponse:
@@ -725,6 +795,9 @@ async def api_upload_chunk_init(request: Request) -> JSONResponse:
     session_id = (data or {}).get("session_id")
     if not item_id or not session_id:
         return JSONResponse({"error": "missing_ids"}, status_code=400)
+    denied = _guard_chunked_upload((data or {}).get("invite_token"))
+    if denied:
+        return denied
     d = _chunk_dir(session_id, item_id)
     try:
         os.makedirs(d, exist_ok=True)
@@ -755,6 +828,9 @@ async def api_upload_chunk(
     chunk: UploadFile = Form(...),
 ) -> JSONResponse:
     """Receive a single chunk; write to disk under chunk directory."""
+    denied = _guard_chunked_upload(invite_token)
+    if denied:
+        return denied
     d = _chunk_dir(session_id, item_id)
     try:
         os.makedirs(d, exist_ok=True)
@@ -805,7 +881,10 @@ async def api_upload_chunk_complete(request: Request) -> JSONResponse:
             meta = json.load(f)
     except Exception:
         meta = {}
-    total_chunks = int(meta.get("total_chunks") or (data or {}).get("total_chunks") or 0)
+    try:
+        total_chunks = int(meta.get("total_chunks") or (data or {}).get("total_chunks") or 0)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "missing_total"}, status_code=400)
     if total_chunks <= 0:
         return JSONResponse({"error": "missing_total"}, status_code=400)
     # Prefer the name captured at init if request did not include it

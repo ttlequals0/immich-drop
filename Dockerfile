@@ -1,28 +1,27 @@
 # syntax=docker/dockerfile:1.7
-FROM python:3.11-slim
+FROM python:3.11-alpine
 
 WORKDIR /immich_drop
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Pull in the latest debian security patches.
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Pull in the latest security patches.
+RUN apk upgrade --no-cache
 
-# Static ffmpeg binary -- avoids dragging in mesa, libssh, libcups, libgbm,
-# systemd, libmbedcrypto, etc. via the debian ffmpeg meta-package, every one
-# of which has unpatched HIGH/CRITICAL CVEs in trixie. yt-dlp only uses the
-# ffmpeg/ffprobe binaries, so a static build is functionally equivalent.
+# Static ffmpeg binary -- avoids the distro ffmpeg package and its dependency
+# tree. yt-dlp only uses the ffmpeg/ffprobe binaries.
 COPY --from=mwader/static-ffmpeg:7.1 /ffmpeg /usr/local/bin/ffmpeg
 COPY --from=mwader/static-ffmpeg:7.1 /ffprobe /usr/local/bin/ffprobe
 
 # Install Python deps
 COPY requirements.txt /immich_drop/requirements.txt
+# pip is removed after install: the runtime never uses it, and its vendored
+# msgpack/pkg_resources copies are the only CVE hits in the python layer
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r /immich_drop/requirements.txt
+    && pip install --no-cache-dir -r /immich_drop/requirements.txt \
+    && pip uninstall -y pip \
+    && rm -rf /usr/local/lib/python3.11/ensurepip
 
 # Copy app code
 COPY . /immich_drop
@@ -42,9 +41,7 @@ ENV HOST=0.0.0.0 \
 
 EXPOSE 8080
 
-# Reads PORT so the check follows a non-default port; /api/config is a cheap
-# JSON response that never redirects, unlike / which 302s to /login when the
-# public upload page is disabled.
+# /api/config never redirects; / 302s to /login when the public page is off
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
   CMD python -c 'import os,urllib.request; urllib.request.urlopen("http://127.0.0.1:%s/api/config" % os.getenv("PORT","8080"), timeout=3).read()'
 
