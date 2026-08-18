@@ -9,23 +9,33 @@ All notable changes to this project will be documented in this file.
   TikTok began rejecting webpage requests that carry no Referer header around
   2026-08-10; yt-dlp's extractor sends none and the upstream fix
   (yt-dlp/yt-dlp#17437) is still unmerged, so the TikTok branch now passes
-  `--referer https://www.tiktok.com/`. Not fixed by a yt-dlp bump: 2026.7.4 is
-  the current release and its TikTok extractor is unchanged since March.
+  `--referer https://www.tiktok.com/`. A yt-dlp bump does not help here.
+  2026.7.4 is the current release and its TikTok extractor is unchanged
+  since March.
 - Chunked upload completion returned 500 instead of 400 when `total_chunks`
   was not an integer.
 
 ### Security
-- Chunk upload endpoints wrote to disk before any validation. `/api/upload/chunk/init`
-  and `/api/upload/chunk` now reject requests when chunked uploads are disabled
-  and validate a supplied invite token (existence, disabled, expiry, exhaustion)
-  before accepting bytes. The check is read-only, so one-time invites are still
-  claimed at completion rather than at init.
-- Abandoned chunk directories are now swept after 6 hours by the existing
+- Chunk upload endpoints wrote to disk before any validation.
+  `/api/upload/chunk/init` and `/api/upload/chunk` now reject requests when
+  chunked uploads are disabled, and validate a supplied invite token
+  (existence, disabled, expiry, exhaustion) before accepting bytes. The check
+  is read-only, so one-time invites are still claimed at completion.
+- Abandoned chunk directories are swept after 6 hours by the existing
   background cleanup loop. Cleanup previously ran only on the completion path,
-  so any upload that was started and never finished left its parts on /data
+  so an upload that was started and never finished left its parts on /data
   permanently.
-- `_chunk_dir` now asserts the resolved path is contained in `CHUNK_ROOT`,
-  using the previously unused `_CHUNK_ROOT_RESOLVED`.
+- `_chunk_dir` normalizes the joined path and checks it against the chunk root
+  prefix, using the previously unused `_CHUNK_ROOT_RESOLVED`.
+- Base image moved from `python:3.11-slim` (Debian 13.6) to
+  `python:3.11-alpine`. Trivy found 14 HIGH CVEs on the Debian base, in
+  perl-base, ncurses, gzip and libacl1, none of which Debian has patched; all
+  are marked `affected` or `fix_deferred`. The Alpine image scans clean at 0
+  HIGH/CRITICAL and is 475MB against 563MB. Every pinned dependency installs
+  from a musl wheel, so the image gains no compiler.
+- pip is removed after dependency installation. Its vendored `msgpack` and
+  `pkg_resources` copies were the only findings in the Python layer, and
+  nothing at runtime uses pip.
 
 ### Changed
 - Docker image ships a HEALTHCHECK (#77, thanks @knom). It reads `PORT` and
