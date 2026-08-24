@@ -20,6 +20,7 @@ Admin users log in to create public invite links; invite links are always public
 - **URL Downloads:** download from TikTok, Instagram, Facebook, Reddit, YouTube, Twitter, Flickr, Imgur, Tumblr, Pinterest, and many more -- upload to Immich
 - **Platform Cookies:** add authentication cookies for platforms requiring login (Instagram, TikTok, etc.)
 - **iOS Shortcut:** share social media URLs from your iPhone to Immich ([setup guide](docs/ios-shortcuts.md))
+- **Immich Shared Links (upload):** use a link created natively in Immich (Sharing → album link with "Allow public user to upload") at `/invite/<key>` -- same page/UX as local invites, but name/password/expiry/album are read live from Immich and uploads authenticate with the share key alone. Pairs well with [immich-public-proxy](https://github.com/alangrainger/immich-public-proxy), which does the read-only equivalent for viewing shares.
 
 ---
 
@@ -172,6 +173,19 @@ Many social media platforms require authentication to access certain content (e.
 | `/api/cookies/{platform}` | DELETE | Delete platform cookie |
 
 Cookies are stored server-side in `/data/cookies/` and automatically used when downloading from the corresponding platform.
+
+---
+
+## Immich Shared Links
+
+In addition to invite links created in this app's admin menu, you can hand out a link created **directly in Immich** and use it here for uploads -- no local invite record needed:
+
+1. In Immich, open an album → **Share** → **Create link**.
+2. Enable **"Allow public user to upload"** (the link must be of the album type, not an individual-asset link).
+3. Optionally set a password and/or expiry in Immich.
+4. Copy the share key from the generated URL (`https://your-immich/share/<key>`) and open `https://your-drop-host/invite/<key>` in a browser.
+
+This app never stores the album, password, or expiry for these links -- every request asks Immich directly (`GET /shared-links/me`, `POST /shared-links/login`), the same key-only trust model [immich-public-proxy](https://github.com/alangrainger/immich-public-proxy) uses for read-only viewing. Uploads authenticate with the share key itself (which Immich grants upload access to when `allowUpload` is set), so no admin `IMMICH_API_KEY` is required for this flow.
 
 ---
 

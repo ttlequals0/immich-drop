@@ -236,3 +236,56 @@ async def ping(client: httpx.AsyncClient, base_url: str, headers: Dict[str, str]
         except Exception:
             continue
     return False
+
+
+def share_key_headers(key: str) -> Dict[str, str]:
+    """Headers to authenticate as an Immich native Shared Link (no API key needed).
+
+    Immich grants read/upload access purely from possession of the share key
+    (see auth.service.ts `validateSharedLinkKey` / access.ts `requireUploadAccess`),
+    the same mechanism immich-public-proxy relies on for read-only viewing.
+    """
+    return {"Accept": "application/json", "x-immich-share-key": key}
+
+
+async def get_shared_link(client: httpx.AsyncClient, base_url: str, key: str) -> tuple[Optional[dict], int]:
+    """GET /shared-links/me using only the share key.
+
+    Returns (data, status_code). Immich responds 401 when the link is
+    password-protected and no valid unlock token/cookie was supplied, and
+    404/403 when the key does not resolve to any shared link.
+    """
+    try:
+        r = await client.get(f"{base_url}/shared-links/me", headers=share_key_headers(key), timeout=10.0)
+    except Exception as e:
+        logger.warning("Shared-link lookup failed: %s", e)
+        return None, 0
+    if r.status_code == 200:
+        try:
+            return r.json(), 200
+        except Exception:
+            return None, 502
+    return None, r.status_code
+
+
+async def shared_link_login(client: httpx.AsyncClient, base_url: str, key: str, password: str) -> tuple[Optional[dict], int]:
+    """POST /shared-links/login to validate a share password against Immich itself.
+
+    On success Immich returns the full shared link (album, allowUpload, etc.).
+    """
+    try:
+        r = await client.post(
+            f"{base_url}/shared-links/login",
+            headers={**share_key_headers(key), "Content-Type": "application/json"},
+            json={"password": password},
+            timeout=10.0,
+        )
+    except Exception as e:
+        logger.warning("Shared-link login failed: %s", e)
+        return None, 0
+    if r.status_code == 201:
+        try:
+            return r.json(), 200
+        except Exception:
+            return None, 502
+    return None, r.status_code
