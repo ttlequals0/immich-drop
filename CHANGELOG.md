@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Dependencies
+- charset-normalizer 3.5.0 -> 3.5.1, idna 3.18 -> 3.19,
+  python-dotenv 1.2.2 -> 1.2.3, uvicorn 0.52.3 -> 0.52.4.
+- pydantic_core held at 2.46.4. Dependabot grouped 2.48.0 into the same bump
+  (#86), which cannot resolve: pydantic 2.13.4 pins pydantic-core==2.46.4
+  exactly. Same conflict that closed #75.
+
 ## [1.8.2] - 2026-08-17
 
 ### Fixed
