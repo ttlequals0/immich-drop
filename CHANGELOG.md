@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Immich native Shared Links can be used for uploads (#87, thanks @knom). A link
+  created in Immich itself (Sharing -> Create link with "Allow public user to
+  upload") works at `/invite/<key>` with no local invite record; name, password,
+  expiry and album are read live from Immich, and the upload and album-add calls
+  authenticate with the share key alone.
+
+### Security
+- A share password unlocked the link for every visitor, not just the one who
+  entered it. `POST /shared-links/login` is answered with a Set-Cookie carrying
+  Immich's unlock token, and the call was made on the process-wide
+  `app.state.httpx_client`; httpx stores response cookies on the client that
+  made the request and replays them on every later request to that host. The
+  first correct password therefore authorized everyone until the process
+  restarted. The login now runs on a throwaway client and the token is held in
+  the visitor's own session, sent explicitly as a Cookie header.
+- Chunk upload endpoints accepted any unrecognized token again. Tokens that are
+  not local invites were passed through `_guard_chunked_upload` and only
+  validated at completion, which reopened the pre-validation hole closed in
+  1.8.2. The guard now validates a non-invite token against Immich as a Shared
+  Link key before any bytes reach /data.
 ### Dependencies
 - charset-normalizer 3.5.0 -> 3.5.1, idna 3.18 -> 3.19,
   python-dotenv 1.2.2 -> 1.2.3, uvicorn 0.52.3 -> 0.52.4.

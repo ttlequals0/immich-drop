@@ -331,7 +331,7 @@ async def get_or_create_album(request: Optional[Request] = None, album_name_over
             logger.info("Resolved album '%s' to ID: %s", album_name, ALBUM_ID)
         return found_id
 
-async def add_asset_to_album(asset_id: str, request: Optional[Request] = None, album_id_override: Optional[str] = None, album_name_override: Optional[str] = None) -> bool:
+async def add_asset_to_album(asset_id: str, request: Optional[Request] = None, album_id_override: Optional[str] = None, album_name_override: Optional[str] = None, headers_override: Optional[dict] = None) -> bool:
     """Add an asset to the configured album. Returns True on success."""
     album_id = album_id_override
     if not album_id:
@@ -339,7 +339,7 @@ async def add_asset_to_album(asset_id: str, request: Optional[Request] = None, a
     if not album_id or not asset_id:
         return False
     return await immich_client.add_to_album(
-        app.state.httpx_client, SETTINGS.normalized_base_url, immich_headers(request), album_id, asset_id
+        app.state.httpx_client, SETTINGS.normalized_base_url, headers_override or immich_headers(request), album_id, asset_id
     )
 
 async def immich_ping() -> bool:
@@ -461,7 +461,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
 # ---------- Upload core (shared by whole-file and chunked paths) ----------
 
 def check_invite_for_upload(request: Request, invite_token: str, session_id: str):
-    """Validate an invite token for an upload attempt.
+    """Validate a locally-created invite token for an upload attempt.
 
     Returns (error, album_id, album_name) where error is
     (ws_message, error_key, http_status) or None when the invite is usable.
@@ -543,6 +543,168 @@ def check_invite_for_upload(request: Request, invite_token: str, session_id: str
             return ("Invite already used up", "invite_exhausted", 403), None, None
     return None, album_id, album_name
 
+# ---------- Immich native Shared Links (immich-public-proxy compatible) ----------
+# Lets a link created directly in Immich (Sharing -> Create link, with
+# "Allow public user to upload" enabled) be used at /invite/{key} without any
+# local invite record. Metadata (name/password/expiry/album) is always read
+# live from Immich; the upload and album-add calls authenticate with the share
+# key alone, matching the key-only trust model immich-public-proxy uses for
+# viewing shares. The pre-upload duplicate check in process_upload still runs
+# with the app's own credentials, so IMMICH_API_KEY is not made optional by
+# this flow.
+
+def _share_token_for(request: Request, key: str) -> Optional[str]:
+    """This visitor's Immich unlock token for a password-protected share, if any.
+
+    Stored per browser session by immich_share_auth. It must never live in the
+    shared httpx client's cookie jar, which is process-wide.
+    """
+    try:
+        return (request.session.get("immichShareTokens") or {}).get(key)
+    except Exception:
+        return None
+
+def _immich_share_from_result(result: dict) -> dict:
+    album = result.get("album") or {}
+    return {
+        "albumId": album.get("id"),
+        "albumName": album.get("albumName"),
+        "type": result.get("type"),
+        "allowUpload": bool(result.get("allowUpload")),
+        "expiresAt": result.get("expiresAt"),
+        "description": result.get("description"),
+    }
+
+async def fetch_immich_share(request: Request, key: str) -> tuple[Optional[dict], int]:
+    """Look up an Immich shared link by key, scoped to this visitor's session."""
+    result, status = await immich_client.get_shared_link(
+        app.state.httpx_client, SETTINGS.normalized_base_url, key, share_token=_share_token_for(request, key)
+    )
+    if status == 200 and result:
+        return _immich_share_from_result(result), 200
+    return None, status
+
+async def check_immich_share_for_upload(request: Request, key: str):
+    """Validate an Immich native Shared Link (by key) for an upload attempt.
+
+    Returns (error, album_id, album_name, share_key) with the same error
+    shape as check_invite_for_upload; share_key signals the caller to
+    authenticate Immich calls with the share key instead of admin creds.
+    """
+    data, status = await fetch_immich_share(request, key)
+    if status == 401:
+        return ("Password required", "invite_password_required", 403), None, None, None
+    if not data:
+        return ("Invalid invite token", "invalid_invite", 403), None, None, None
+    if data.get("type") != "ALBUM" or not data.get("albumId"):
+        return ("Share does not target an album", "invalid_invite", 403), None, None, None
+    if not data.get("allowUpload"):
+        return ("Share does not allow uploads", "invite_disabled", 403), None, None, None
+    expires_at = data.get("expiresAt")
+    if expires_at:
+        try:
+            exp = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > exp:
+                return ("Invite expired", "invite_expired", 403), None, None, None
+        except Exception:
+            pass
+    return None, data.get("albumId"), data.get("albumName"), key
+
+async def check_invite_or_share_for_upload(request: Request, invite_token: str, session_id: str):
+    """Resolve an invite_token against local invites, falling back to an
+    Immich native Shared Link key. Returns (error, album_id, album_name, share_key)."""
+    try:
+        conn = db.connect()
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM invites WHERE token = ?", (invite_token,))
+        is_local = cur.fetchone() is not None
+        conn.close()
+    except Exception:
+        is_local = False
+    if is_local:
+        error, album_id, album_name = check_invite_for_upload(request, invite_token, session_id)
+        return error, album_id, album_name, None
+    return await check_immich_share_for_upload(request, invite_token)
+
+async def immich_share_info(key: str, request: Request) -> JSONResponse:
+    """/api/invite/{token} fallback: describe an Immich native Shared Link.
+
+    Mirrors the local-invite response shape so the existing invite.html page
+    (same layout) renders it without any frontend changes.
+    """
+    data, status = await fetch_immich_share(request, key)
+    if status == 401:
+        return JSONResponse({
+            "token": key,
+            "albumId": None,
+            "albumName": None,
+            "name": None,
+            "maxUses": -1,
+            "used": 0,
+            "remaining": None,
+            "expiresAt": None,
+            "oneTime": False,
+            "claimed": False,
+            "claimedAt": None,
+            "expired": False,
+            "active": True,
+            "inactiveReason": None,
+            "passwordRequired": True,
+            "authorized": False,
+        })
+    if not data:
+        return JSONResponse({"error": "not_found"}, status_code=404)
+    expired = False
+    if data.get("expiresAt"):
+        try:
+            expired = datetime.now(timezone.utc) > datetime.fromisoformat(str(data["expiresAt"]).replace("Z", "+00:00"))
+        except Exception:
+            pass
+    active = data.get("type") == "ALBUM" and bool(data.get("albumId")) and bool(data.get("allowUpload")) and not expired
+    reason = None
+    if not active:
+        reason = "expired" if expired else ("no_upload" if not data.get("allowUpload") else "invalid")
+    return JSONResponse({
+        "token": key,
+        "albumId": data.get("albumId"),
+        "albumName": data.get("albumName"),
+        "name": data.get("description") or data.get("albumName"),
+        "maxUses": -1,
+        "used": 0,
+        "remaining": None,
+        "expiresAt": data.get("expiresAt"),
+        "oneTime": False,
+        "claimed": False,
+        "claimedAt": None,
+        "expired": expired,
+        "active": active,
+        "inactiveReason": (None if active else reason),
+        "passwordRequired": False,
+        "authorized": True,
+    })
+
+async def immich_share_auth(key: str, request: Request, provided_password: Optional[str]) -> JSONResponse:
+    """/api/invite/{token}/auth fallback: validate a share password against Immich itself."""
+    if not provided_password:
+        return JSONResponse({"error": "invalid_password"}, status_code=403)
+    result, share_token, status = await immich_client.shared_link_login(
+        SETTINGS.normalized_base_url, key, provided_password
+    )
+    if status != 200 or not result:
+        return JSONResponse({"error": "invalid_password"}, status_code=403)
+    if not share_token:
+        # Without the unlock token every later /shared-links/me is still 401,
+        # so uploads would fail after an apparently successful password entry.
+        logger.warning("Shared-link login for %s returned no unlock token", key)
+        return JSONResponse({"error": "invalid_password"}, status_code=403)
+    tokens = request.session.get("immichShareTokens") or {}
+    tokens[key] = share_token
+    request.session["immichShareTokens"] = tokens
+    ia = request.session.get("inviteAuth") or {}
+    ia[key] = True
+    request.session["inviteAuth"] = ia
+    return JSONResponse({"ok": True, "authorized": True})
+
 def increment_invite_usage(invite_token: str) -> None:
     """Bump used_count after a successful upload (one-time stays at 1)."""
     try:
@@ -622,15 +784,22 @@ async def process_upload(
         await send_progress(session_id, item_id, "duplicate", 100, "Duplicate (server)", asset_id)
         return JSONResponse({"status": "duplicate", "id": asset_id}, status_code=200)
 
-    # Invite token validation (if provided)
+    # Invite token validation (if provided); falls back to an Immich native
+    # Shared Link key when the token isn't a local invite (see
+    # check_invite_or_share_for_upload).
     target_album_id: Optional[str] = None
     target_album_name: Optional[str] = None
+    share_key: Optional[str] = None
     if invite_token:
-        error, target_album_id, target_album_name = check_invite_for_upload(request, invite_token, session_id)
+        error, target_album_id, target_album_name, share_key = await check_invite_or_share_for_upload(request, invite_token, session_id)
         if error:
             msg, key, http_status = error
             await send_progress(session_id, item_id, "error", 100, msg)
             return JSONResponse({"error": key}, status_code=http_status)
+
+    # Immich Shared Links authenticate purely via the key (allowUpload grants
+    # write access); local invites keep using the app's own Immich credentials.
+    upload_headers = immich_client.share_key_headers(share_key) if share_key else immich_headers(request)
 
     safe_name = sanitize_filename(orig_name)
     await send_progress(session_id, item_id, "uploading", 0, "Uploading…")
@@ -641,7 +810,7 @@ async def process_upload(
     outcome = await immich_client.upload_asset(
         app.state.httpx_client,
         SETTINGS.normalized_base_url,
-        immich_headers(request),
+        upload_headers,
         file_bytes=raw,
         filename=safe_name,
         content_type=content_type or "application/octet-stream",
@@ -669,7 +838,7 @@ async def process_upload(
         if invite_token:
             # Only add if invite specified an album; do not fallback to env default
             if target_album_id or target_album_name:
-                if await add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name):
+                if await add_asset_to_album(asset_id, request=request, album_id_override=target_album_id, album_name_override=target_album_name, headers_override=(upload_headers if share_key else None)):
                     status += f" (added to album '{target_album_name or target_album_id}')"
         elif SETTINGS.album_name:
             if await add_asset_to_album(asset_id, request=request):
@@ -677,7 +846,7 @@ async def process_upload(
 
     await send_progress(session_id, item_id, "duplicate" if outcome.status == "duplicate" else "done", 100, status, asset_id)
 
-    if invite_token:
+    if invite_token and not share_key:
         increment_invite_usage(invite_token)
     log_upload_event(request, invite_token, fingerprint, orig_name, size, checksum, asset_id)
     return JSONResponse({"id": asset_id, "status": status}, status_code=200)
@@ -725,10 +894,13 @@ def _chunk_dir(session_id: str, item_id: str) -> str:
     return path
 
 
-def _guard_chunked_upload(invite_token: Optional[str]) -> Optional[JSONResponse]:
+async def _guard_chunked_upload(request: Request, invite_token: Optional[str]) -> Optional[JSONResponse]:
     """Reject chunk writes before any bytes hit disk.
 
-    Read-only: one-time invites are still claimed at completion.
+    Read-only: one-time invites are still claimed at completion. A token that
+    is not a local invite is validated against Immich as a Shared Link key
+    here rather than at completion, so an unrecognized token still cannot
+    write parts to /data.
     """
     if not SETTINGS.chunked_uploads_enabled:
         return JSONResponse({"error": "chunked_uploads_disabled"}, status_code=403)
@@ -747,7 +919,13 @@ def _guard_chunked_upload(invite_token: Optional[str]) -> Optional[JSONResponse]
         logger.exception("Invite precheck failed: %s", e)
         return JSONResponse({"error": "invite_lookup_failed"}, status_code=500)
     if not row:
-        return JSONResponse({"error": "invalid_invite"}, status_code=403)
+        # Not a local invite. Validate it as an Immich Shared Link key now;
+        # returning None here would let any token write parts to disk.
+        error, _album_id, _album_name, _share_key = await check_immich_share_for_upload(request, invite_token)
+        if error:
+            _msg, error_key, http_status = error
+            return JSONResponse({"error": error_key}, status_code=http_status)
+        return None
     expires_at, disabled, max_uses, used_count = row
     if int(disabled or 0) == 1:
         return JSONResponse({"error": "invite_disabled"}, status_code=403)
@@ -795,7 +973,7 @@ async def api_upload_chunk_init(request: Request) -> JSONResponse:
     session_id = (data or {}).get("session_id")
     if not item_id or not session_id:
         return JSONResponse({"error": "missing_ids"}, status_code=400)
-    denied = _guard_chunked_upload((data or {}).get("invite_token"))
+    denied = await _guard_chunked_upload(request, (data or {}).get("invite_token"))
     if denied:
         return denied
     d = _chunk_dir(session_id, item_id)
@@ -828,7 +1006,7 @@ async def api_upload_chunk(
     chunk: UploadFile = Form(...),
 ) -> JSONResponse:
     """Receive a single chunk; write to disk under chunk directory."""
-    denied = _guard_chunked_upload(invite_token)
+    denied = await _guard_chunked_upload(request, invite_token)
     if denied:
         return denied
     d = _chunk_dir(session_id, item_id)
@@ -1437,7 +1615,7 @@ async def api_invite_info(token: str, request: Request) -> JSONResponse:
         logger.exception("Invite info error: %s", e)
         return JSONResponse({"error": "db_error"}, status_code=500)
     if not row:
-        return JSONResponse({"error": "not_found"}, status_code=404)
+        return await immich_share_info(token, request)
     _, album_id, album_name, max_uses, used_count, expires_at, claimed, claimed_at, password_hash, disabled, link_name = row
     
     # If we have an album_id but no album_name, try to fetch it from Immich
@@ -1537,7 +1715,7 @@ async def api_invite_auth(token: str, request: Request) -> JSONResponse:
         logger.exception("Invite auth lookup error: %s", e)
         return JSONResponse({"error": "db_error"}, status_code=500)
     if not row:
-        return JSONResponse({"error": "not_found"}, status_code=404)
+        return await immich_share_auth(token, request, provided)
     password_hash = row[0]
     if not password_hash:
         # No password required; mark as authorized to simplify client flow

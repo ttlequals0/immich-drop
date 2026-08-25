@@ -236,3 +236,75 @@ async def ping(client: httpx.AsyncClient, base_url: str, headers: Dict[str, str]
         except Exception:
             continue
     return False
+
+
+def share_key_headers(key: str) -> Dict[str, str]:
+    """Headers to authenticate as an Immich native Shared Link (no API key needed).
+
+    Immich grants read/upload access purely from possession of the share key
+    (see auth.service.ts `validateSharedLinkKey` / access.ts `requireUploadAccess`),
+    the same mechanism immich-public-proxy relies on for read-only viewing.
+    """
+    return {"Accept": "application/json", "x-immich-share-key": key}
+
+
+SHARED_LINK_TOKEN_COOKIE = "immich_shared_link_token"
+
+
+async def get_shared_link(
+    client: httpx.AsyncClient, base_url: str, key: str, share_token: Optional[str] = None
+) -> tuple[Optional[dict], int]:
+    """GET /shared-links/me using the share key, plus one caller's unlock token.
+
+    Returns (data, status_code). Immich responds 401 when the link is
+    password-protected and no valid unlock token was supplied, and
+    404/403 when the key does not resolve to any shared link.
+
+    share_token belongs to a single visitor and is passed explicitly rather
+    than left in the shared client's cookie jar, which would apply it to every
+    other visitor's request (see shared_link_login).
+    """
+    headers = share_key_headers(key)
+    if share_token:
+        headers["Cookie"] = f"{SHARED_LINK_TOKEN_COOKIE}={share_token}"
+    try:
+        r = await client.get(f"{base_url}/shared-links/me", headers=headers, timeout=10.0)
+    except Exception as e:
+        logger.warning("Shared-link lookup failed: %s", e)
+        return None, 0
+    if r.status_code == 200:
+        try:
+            return r.json(), 200
+        except Exception:
+            return None, 502
+    return None, r.status_code
+
+
+async def shared_link_login(base_url: str, key: str, password: str) -> tuple[Optional[dict], Optional[str], int]:
+    """POST /shared-links/login to validate a share password against Immich itself.
+
+    Returns (data, share_token, status_code). Immich answers with a
+    Set-Cookie carrying the unlock token, so this deliberately uses a
+    throwaway client instead of the app-wide pooled one: httpx stores response
+    cookies on the client that made the request and replays them on every
+    later request to that host, which would hand one visitor's unlock token to
+    everyone else and defeat the share password entirely. The token is
+    returned to the caller to store per-session instead.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as one_shot:
+            r = await one_shot.post(
+                f"{base_url}/shared-links/login",
+                headers={**share_key_headers(key), "Content-Type": "application/json"},
+                json={"password": password},
+            )
+            token = r.cookies.get(SHARED_LINK_TOKEN_COOKIE)
+    except Exception as e:
+        logger.warning("Shared-link login failed: %s", e)
+        return None, None, 0
+    if r.status_code == 201:
+        try:
+            return r.json(), token, 200
+        except Exception:
+            return None, None, 502
+    return None, None, r.status_code
