@@ -285,23 +285,25 @@ class UrlUploader {
         const status = result.duplicate ? 'duplicate' : result.status;
         const badgeClass = status === 'duplicate' ? 'badge--amber' : status === 'success' ? 'badge--green' : 'badge--red';
 
-        // Build result element using DOM methods to avoid innerHTML with user data
+        // Build result element using DOM methods to avoid innerHTML with user data.
+        // Uses the same header/meta/name classes as the file-upload rows in
+        // app.js so long filenames truncate instead of widening the card.
         const resultEl = document.createElement('div');
         resultEl.className = 'upload-item';
-        resultEl.style.display = 'flex';
-        resultEl.style.alignItems = 'center';
-        resultEl.style.justifyContent = 'space-between';
+
+        const header = document.createElement('div');
+        header.className = 'upload-item__header';
 
         const left = document.createElement('div');
-        left.style.minWidth = '0';
+        left.className = 'upload-item__meta';
         const nameSpan = document.createElement('span');
-        nameSpan.style.fontWeight = '500';
+        nameSpan.className = 'upload-item__name';
+        nameSpan.title = result.filename;
         nameSpan.textContent = result.filename;
         left.appendChild(nameSpan);
         if (result.platform) {
             const platSpan = document.createElement('span');
-            platSpan.className = 'text-xs text-secondary';
-            platSpan.style.marginLeft = '8px';
+            platSpan.className = 'upload-item__size';
             platSpan.textContent = result.platform;
             left.appendChild(platSpan);
         }
@@ -310,8 +312,9 @@ class UrlUploader {
         badge.className = 'badge ' + badgeClass;
         badge.textContent = result.duplicate ? 'Duplicate' : result.status;
 
-        resultEl.appendChild(left);
-        resultEl.appendChild(badge);
+        header.appendChild(left);
+        header.appendChild(badge);
+        resultEl.appendChild(header);
         resultsDiv.prepend(resultEl);
 
         while (resultsDiv.children.length > 10) {

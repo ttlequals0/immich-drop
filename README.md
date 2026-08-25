@@ -187,7 +187,7 @@ In addition to invite links created in this app's admin menu, you can hand out a
 
 This app never stores the album, password, or expiry for these links -- every request asks Immich directly (`GET /shared-links/me`, `POST /shared-links/login`), the same key-only trust model [immich-public-proxy](https://github.com/alangrainger/immich-public-proxy) uses for read-only viewing. The upload and album-add calls authenticate with the share key itself, which Immich grants upload access to when `allowUpload` is set. `IMMICH_API_KEY` is still used for the duplicate check that runs before every upload, so it remains required.
 
-If the link is password-protected, Immich's unlock token is held in your browser session on this app, scoped to you -- entering the password does not unlock the link for anyone else.
+If the link is password-protected, Immich's unlock token is held in your browser session on this app, scoped to you, so entering the password does not unlock the link for anyone else.
 
 ---
 
@@ -277,7 +277,7 @@ immich_drop/
 
 ## Requirements
 
-- **Python** 3.11
+- **Python** 3.14
 - An **Immich** server + **API key**
 - **gallery-dl** and **yt-dlp** (installed automatically in Docker image)
 
