@@ -405,6 +405,8 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
   letter-spacing: 0.04em;
   padding: 3px 8px;
   border-radius: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .badge--green { background: var(--green-bg); color: var(--green-text); }
 .badge--red { background: var(--red-bg); color: var(--red-text); }
@@ -435,11 +437,30 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px 8px;
+  min-width: 0;
+  /* When the name and the status cannot sit side by side, the status drops to
+     its own line rather than squeezing the name down to a few characters. */
+  flex-wrap: wrap;
+}
+/* Left column: the name truncates, the trailing metadata never does. */
+.upload-item__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  /* Content-sized basis: a name that fits keeps the status beside it, and a
+     name that does not takes the whole line and truncates there. */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 .upload-item__name {
   font-weight: 500;
   font-size: 0.875rem;
+  /* Flex blockifies this span, which is what makes text-overflow apply.
+     On an inline span these three properties do nothing and a long
+     unbroken filename pushes the whole row past the card. */
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -448,11 +469,19 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
 .upload-item__size {
   font-size: 0.75rem;
   color: var(--text-tertiary);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .upload-item__status {
   font-size: 0.8125rem;
   font-weight: 500;
   flex-shrink: 0;
+}
+/* Keeps the status in the same right-hand column whether it sits beside the
+   name or wraps below it, so a list of rows stays scannable. */
+.upload-item__header > .upload-item__status,
+.upload-item__header > .badge {
+  margin-left: auto;
 }
 .upload-item__bar {
   height: 4px;

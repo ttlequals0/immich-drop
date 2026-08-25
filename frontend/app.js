@@ -143,13 +143,14 @@ function render(){
     var header = document.createElement('div');
     header.className = 'upload-item__header';
     var left = document.createElement('div');
-    left.className = 'min-w-0';
+    left.className = 'upload-item__meta';
     var nameEl = document.createElement('span');
     nameEl.className = 'upload-item__name';
+    nameEl.title = it.name;
     nameEl.textContent = it.name;
     var sizeEl = document.createElement('span');
     sizeEl.className = 'upload-item__size';
-    sizeEl.textContent = ' ('+human(it.size)+')';
+    sizeEl.textContent = '('+human(it.size)+')';
     left.appendChild(nameEl);
     left.appendChild(sizeEl);
     var statusEl = document.createElement('div');

@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.1] - 2026-08-25
+
+### Fixed
+- Long filenames broke out of the upload result cards. A name with no wrap
+  opportunity pushed the row past the card edge and shoved the platform label
+  outside the right border. Two causes: `url-uploader.js` built its own result
+  row with inline styles instead of the `.upload-item__header` classes the
+  file-upload rows use, and those shared classes set `overflow: hidden` and
+  `text-overflow: ellipsis` on an inline `<span>`, where `overflow` does not
+  apply and both declarations did nothing. The name is now a flex item, which
+  blockifies it and makes the ellipsis work, and both upload paths share one
+  set of classes. The file-upload rows had the same latent bug.
+- Upload status sat in two different places within one list, right-aligned
+  when it fit beside the filename and left-aligned when it wrapped below.
+  It now holds the same right-hand column either way, so a list of rows stays
+  scannable.
+
 ## [1.9.0] - 2026-08-25
 
 ### Added
