@@ -564,11 +564,8 @@ async def download_from_url(
 
     # Platform-specific options
     if platform == 'tiktok':
-        # TikTok blocks webpage requests with no Referer (yt-dlp/yt-dlp#17403).
-        # Remove once the upstream fix (#17437) ships.
         cmd.extend([
             "--format", "best",
-            "--referer", "https://www.tiktok.com/",
         ])
     elif platform == 'instagram':
         cmd.extend([

@@ -2,14 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.9.0] - 2026-08-25
 
 ### Added
 - Immich native Shared Links can be used for uploads (#87, thanks @knom). A link
   created in Immich itself (Sharing -> Create link with "Allow public user to
   upload") works at `/invite/<key>` with no local invite record; name, password,
   expiry and album are read live from Immich, and the upload and album-add calls
-  authenticate with the share key alone.
+  authenticate with the share key alone. The existing invite page renders it
+  with no frontend change.
+
+### Fixed
+- TikTok no longer needs the `--referer` workaround added in 1.8.2. yt-dlp
+  2026.8.19 replaced the bare webpage fetch with browser impersonation and
+  generated headers, which fixes the "Unexpected response from webpage request"
+  failure at its source. Verified on one post with a single variable changed:
+  2026.7.4 fails without the flag and succeeds with it, 2026.8.19 succeeds
+  either way. The flag and its tracking comment are removed.
 
 ### Security
 - A share password unlocked the link for every visitor, not just the one who
@@ -20,17 +29,25 @@ All notable changes to this project will be documented in this file.
   first correct password therefore authorized everyone until the process
   restarted. The login now runs on a throwaway client and the token is held in
   the visitor's own session, sent explicitly as a Cookie header.
-- Chunk upload endpoints accepted any unrecognized token again. Tokens that are
-  not local invites were passed through `_guard_chunked_upload` and only
-  validated at completion, which reopened the pre-validation hole closed in
-  1.8.2. The guard now validates a non-invite token against Immich as a Shared
-  Link key before any bytes reach /data.
+- Chunk upload endpoints accepted any unrecognized token. Tokens that are not
+  local invites were passed through `_guard_chunked_upload` and only validated
+  at completion, which reopened the pre-validation hole closed in 1.8.2. The
+  guard now validates a non-invite token against Immich as a Shared Link key
+  before any bytes reach /data.
+
+### Changed
+- Base image moved from `python:3.11-alpine` to `python:3.14-alpine` (#83).
+  Every pinned dependency resolves to a cp314 musl wheel, so the image still
+  gains no compiler. Trivy reports 0 HIGH/CRITICAL, and the image is slightly
+  smaller than the 3.11 build made the same way.
+
 ### Dependencies
-- charset-normalizer 3.5.0 -> 3.5.1, idna 3.18 -> 3.19,
-  python-dotenv 1.2.2 -> 1.2.3, uvicorn 0.52.3 -> 0.52.4.
-- pydantic_core held at 2.46.4. Dependabot grouped 2.48.0 into the same bump
-  (#86), which cannot resolve: pydantic 2.13.4 pins pydantic-core==2.46.4
-  exactly. Same conflict that closed #75.
+- yt-dlp 2026.7.4 -> 2026.8.19 (#85), websockets 16.1 -> 17.0.1 (#81),
+  charset-normalizer 3.5.0 -> 3.5.1, idna 3.18 -> 3.19,
+  python-dotenv 1.2.2 -> 1.2.3, uvicorn 0.52.3 -> 0.52.4 (#88).
+- pydantic_core held at 2.46.4. Dependabot grouped 2.48.0 into #86, which
+  cannot resolve: pydantic 2.13.4 pins pydantic-core==2.46.4 exactly. #86 was
+  closed and replaced by #88. Same conflict that closed #75.
 
 ## [1.8.2] - 2026-08-17
 
