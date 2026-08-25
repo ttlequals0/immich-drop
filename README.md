@@ -185,7 +185,9 @@ In addition to invite links created in this app's admin menu, you can hand out a
 3. Optionally set a password and/or expiry in Immich.
 4. Copy the share key from the generated URL (`https://your-immich/share/<key>`) and open `https://your-drop-host/invite/<key>` in a browser.
 
-This app never stores the album, password, or expiry for these links -- every request asks Immich directly (`GET /shared-links/me`, `POST /shared-links/login`), the same key-only trust model [immich-public-proxy](https://github.com/alangrainger/immich-public-proxy) uses for read-only viewing. Uploads authenticate with the share key itself (which Immich grants upload access to when `allowUpload` is set), so no admin `IMMICH_API_KEY` is required for this flow.
+This app never stores the album, password, or expiry for these links -- every request asks Immich directly (`GET /shared-links/me`, `POST /shared-links/login`), the same key-only trust model [immich-public-proxy](https://github.com/alangrainger/immich-public-proxy) uses for read-only viewing. The upload and album-add calls authenticate with the share key itself, which Immich grants upload access to when `allowUpload` is set. `IMMICH_API_KEY` is still used for the duplicate check that runs before every upload, so it remains required.
+
+If the link is password-protected, Immich's unlock token is held in your browser session on this app, scoped to you -- entering the password does not unlock the link for anyone else.
 
 ---
 

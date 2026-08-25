@@ -547,12 +547,22 @@ def check_invite_for_upload(request: Request, invite_token: str, session_id: str
 # Lets a link created directly in Immich (Sharing -> Create link, with
 # "Allow public user to upload" enabled) be used at /invite/{key} without any
 # local invite record. Metadata (name/password/expiry/album) is always read
-# live from Immich; uploads authenticate with the share key alone (no admin
-# IMMICH_API_KEY is needed for this flow), matching the key-only
-# trust model immich-public-proxy uses for viewing shares.
+# live from Immich; the upload and album-add calls authenticate with the share
+# key alone, matching the key-only trust model immich-public-proxy uses for
+# viewing shares. The pre-upload duplicate check in process_upload still runs
+# with the app's own credentials, so IMMICH_API_KEY is not made optional by
+# this flow.
 
-def _immich_share_cache(request: Request) -> Dict[str, dict]:
-    return request.session.get("immichShareCache") or {}
+def _share_token_for(request: Request, key: str) -> Optional[str]:
+    """This visitor's Immich unlock token for a password-protected share, if any.
+
+    Stored per browser session by immich_share_auth. It must never live in the
+    shared httpx client's cookie jar, which is process-wide.
+    """
+    try:
+        return (request.session.get("immichShareTokens") or {}).get(key)
+    except Exception:
+        return None
 
 def _immich_share_from_result(result: dict) -> dict:
     album = result.get("album") or {}
@@ -566,8 +576,10 @@ def _immich_share_from_result(result: dict) -> dict:
     }
 
 async def fetch_immich_share(request: Request, key: str) -> tuple[Optional[dict], int]:
-    """Look up an Immich shared link by key"""
-    result, status = await immich_client.get_shared_link(app.state.httpx_client, SETTINGS.normalized_base_url, key)
+    """Look up an Immich shared link by key, scoped to this visitor's session."""
+    result, status = await immich_client.get_shared_link(
+        app.state.httpx_client, SETTINGS.normalized_base_url, key, share_token=_share_token_for(request, key)
+    )
     if status == 200 and result:
         return _immich_share_from_result(result), 200
     return None, status
@@ -675,9 +687,19 @@ async def immich_share_auth(key: str, request: Request, provided_password: Optio
     """/api/invite/{token}/auth fallback: validate a share password against Immich itself."""
     if not provided_password:
         return JSONResponse({"error": "invalid_password"}, status_code=403)
-    result, status = await immich_client.shared_link_login(app.state.httpx_client, SETTINGS.normalized_base_url, key, provided_password)
+    result, share_token, status = await immich_client.shared_link_login(
+        SETTINGS.normalized_base_url, key, provided_password
+    )
     if status != 200 or not result:
         return JSONResponse({"error": "invalid_password"}, status_code=403)
+    if not share_token:
+        # Without the unlock token every later /shared-links/me is still 401,
+        # so uploads would fail after an apparently successful password entry.
+        logger.warning("Shared-link login for %s returned no unlock token", key)
+        return JSONResponse({"error": "invalid_password"}, status_code=403)
+    tokens = request.session.get("immichShareTokens") or {}
+    tokens[key] = share_token
+    request.session["immichShareTokens"] = tokens
     ia = request.session.get("inviteAuth") or {}
     ia[key] = True
     request.session["inviteAuth"] = ia
@@ -872,13 +894,13 @@ def _chunk_dir(session_id: str, item_id: str) -> str:
     return path
 
 
-def _guard_chunked_upload(invite_token: Optional[str]) -> Optional[JSONResponse]:
-    """Reject chunk writes before any bytes hit disk (local invites only).
+async def _guard_chunked_upload(request: Request, invite_token: Optional[str]) -> Optional[JSONResponse]:
+    """Reject chunk writes before any bytes hit disk.
 
-    Read-only: one-time invites are still claimed at completion. Immich
-    Shared Link tokens are not local invites, so they pass through here and
-    get fully validated later in check_invite_or_share_for_upload at
-    completion time.
+    Read-only: one-time invites are still claimed at completion. A token that
+    is not a local invite is validated against Immich as a Shared Link key
+    here rather than at completion, so an unrecognized token still cannot
+    write parts to /data.
     """
     if not SETTINGS.chunked_uploads_enabled:
         return JSONResponse({"error": "chunked_uploads_disabled"}, status_code=403)
@@ -897,7 +919,12 @@ def _guard_chunked_upload(invite_token: Optional[str]) -> Optional[JSONResponse]
         logger.exception("Invite precheck failed: %s", e)
         return JSONResponse({"error": "invite_lookup_failed"}, status_code=500)
     if not row:
-        # Not a local invite; may be an Immich Shared Link key, validated at completion.
+        # Not a local invite. Validate it as an Immich Shared Link key now;
+        # returning None here would let any token write parts to disk.
+        error, _album_id, _album_name, _share_key = await check_immich_share_for_upload(request, invite_token)
+        if error:
+            _msg, error_key, http_status = error
+            return JSONResponse({"error": error_key}, status_code=http_status)
         return None
     expires_at, disabled, max_uses, used_count = row
     if int(disabled or 0) == 1:
@@ -946,7 +973,7 @@ async def api_upload_chunk_init(request: Request) -> JSONResponse:
     session_id = (data or {}).get("session_id")
     if not item_id or not session_id:
         return JSONResponse({"error": "missing_ids"}, status_code=400)
-    denied = _guard_chunked_upload((data or {}).get("invite_token"))
+    denied = await _guard_chunked_upload(request, (data or {}).get("invite_token"))
     if denied:
         return denied
     d = _chunk_dir(session_id, item_id)
@@ -979,7 +1006,7 @@ async def api_upload_chunk(
     chunk: UploadFile = Form(...),
 ) -> JSONResponse:
     """Receive a single chunk; write to disk under chunk directory."""
-    denied = _guard_chunked_upload(invite_token)
+    denied = await _guard_chunked_upload(request, invite_token)
     if denied:
         return denied
     d = _chunk_dir(session_id, item_id)
