@@ -27,4 +27,4 @@ uvicorn==0.52.4
 watchfiles==1.2.0
 websockets==17.0.1
 yt-dlp[default,curl-cffi]==2026.8.19
-gallery-dl==1.32.9
+gallery-dl==1.32.10
