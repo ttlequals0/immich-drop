@@ -101,11 +101,6 @@ app.add_middleware(SessionMiddleware, secret_key=SETTINGS.session_secret, same_s
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
-# Include URL/batch upload routes
-from .api_routes import create_api_routes
-api_router = create_api_routes(SETTINGS)
-app.include_router(api_router)
-
 # Chunk upload storage
 CHUNK_ROOT = os.getenv("CHUNK_DIR", "/data/chunks")
 try:
@@ -292,7 +287,9 @@ def immich_headers(request: Optional[Request] = None) -> dict:
             token = request.session.get("accessToken")
     except Exception:
         token = None
-    if token:
+    if token and request.session.get("isApiKey"):
+        headers["x-api-key"] = token
+    elif token:
         headers["Authorization"] = f"Bearer {token}"
     elif SETTINGS.immich_api_key:
         headers["x-api-key"] = SETTINGS.immich_api_key
@@ -894,16 +891,8 @@ def _chunk_dir(session_id: str, item_id: str) -> str:
     return path
 
 
-async def _guard_chunked_upload(request: Request, invite_token: Optional[str]) -> Optional[JSONResponse]:
-    """Reject chunk writes before any bytes hit disk.
-
-    Read-only: one-time invites are still claimed at completion. A token that
-    is not a local invite is validated against Immich as a Shared Link key
-    here rather than at completion, so an unrecognized token still cannot
-    write parts to /data.
-    """
-    if not SETTINGS.chunked_uploads_enabled:
-        return JSONResponse({"error": "chunked_uploads_disabled"}, status_code=403)
+async def precheck_upload_token(request: Request, invite_token: Optional[str]) -> Optional[JSONResponse]:
+    """Read-only check of a local invite or Immich share key; None means allowed."""
     if not invite_token:
         return None
     try:
@@ -940,6 +929,36 @@ async def _guard_chunked_upload(request: Request, invite_token: Optional[str]) -
     if max_uses_int >= 0 and int(used_count or 0) >= max_uses_int and max_uses_int != 1:
         return JSONResponse({"error": "invite_exhausted"}, status_code=403)
     return None
+
+
+async def authorize_extension_api(request: Request, invite_token: Optional[str]) -> Optional[JSONResponse]:
+    """Gate for /api/upload/{url,urls,batch,file,base64}; open unless API_UPLOAD_REQUIRE_AUTH."""
+    if not SETTINGS.api_upload_require_auth:
+        return None
+    if request.session.get("accessToken"):
+        return None
+    if invite_token:
+        return await precheck_upload_token(request, invite_token)
+    return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+
+# Include URL/batch upload routes
+from .api_routes import create_api_routes
+api_router = create_api_routes(SETTINGS, authorize=authorize_extension_api)
+app.include_router(api_router)
+
+
+async def _guard_chunked_upload(request: Request, invite_token: Optional[str]) -> Optional[JSONResponse]:
+    """Reject chunk writes before any bytes hit disk.
+
+    Read-only: one-time invites are still claimed at completion. A token that
+    is not a local invite is validated against Immich as a Shared Link key
+    here rather than at completion, so an unrecognized token still cannot
+    write parts to /data.
+    """
+    if not SETTINGS.chunked_uploads_enabled:
+        return JSONResponse({"error": "chunked_uploads_disabled"}, status_code=403)
+    return await precheck_upload_token(request, invite_token)
 
 
 def cleanup_stale_chunks() -> int:
@@ -1125,35 +1144,58 @@ async def api_login(request: Request) -> JSONResponse:
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "invalid_json"}, status_code=400)
-    email = (body or {}).get("email")
-    password = (body or {}).get("password")
-    if not email or not password:
+    email = ((body or {}).get("email") or "").strip()
+    password = ((body or {}).get("password") or "").strip()
+    if not password:
         return JSONResponse({"error": "missing_credentials"}, status_code=400)
-    try:
-        # Use shared httpx client from app state
-        client = app.state.httpx_client
-        r = await client.post(f"{SETTINGS.normalized_base_url}/auth/login", headers={"Content-Type": "application/json", "Accept": "application/json"}, json={"email": email, "password": password}, timeout=15.0)
-    except Exception as e:
-        logger.exception("Login request failed: %s", e)
-        return JSONResponse({"error": "login_failed"}, status_code=502)
-    if r.status_code not in (200, 201):
-        logger.warning("Auth rejected: %s - %s", r.status_code, r.text)
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    data = r.json() if r.content else {}
-    token = data.get("accessToken")
-    if not token:
-        logger.warning("Auth response missing accessToken")
-        return JSONResponse({"error": "invalid_response"}, status_code=502)
+    client = app.state.httpx_client
+    if not email:
+        # No email: password field carries an Immich API key (OIDC users)
+        try:
+            r = await client.get(f"{SETTINGS.normalized_base_url}/users/me", headers={"x-api-key": password, "Accept": "application/json"}, timeout=15.0)
+        except Exception as e:
+            logger.exception("Login request failed: %s", e)
+            return JSONResponse({"error": "login_failed"}, status_code=502)
+        if r.status_code != 200:
+            logger.warning("API key auth rejected: %s - %s", r.status_code, r.text)
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        data = r.json() if r.content else {}
+        token = password
+        user_email = data.get("email")
+        user_id = data.get("id")
+        name = data.get("name") or user_email
+        is_admin = data.get("isAdmin", False)
+        is_api_key = True
+    else:
+        try:
+            r = await client.post(f"{SETTINGS.normalized_base_url}/auth/login", headers={"Content-Type": "application/json", "Accept": "application/json"}, json={"email": email, "password": password}, timeout=15.0)
+        except Exception as e:
+            logger.exception("Login request failed: %s", e)
+            return JSONResponse({"error": "login_failed"}, status_code=502)
+        if r.status_code not in (200, 201):
+            logger.warning("Auth rejected: %s - %s", r.status_code, r.text)
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        data = r.json() if r.content else {}
+        token = data.get("accessToken")
+        if not token:
+            logger.warning("Auth response missing accessToken")
+            return JSONResponse({"error": "invalid_response"}, status_code=502)
+        user_email = data.get("userEmail")
+        user_id = data.get("userId")
+        name = data.get("name")
+        is_admin = data.get("isAdmin", False)
+        is_api_key = False
     # Store only token and basic info in cookie session
     request.session.update({
         "accessToken": token,
-        "userEmail": data.get("userEmail"),
-        "userId": data.get("userId"),
-        "name": data.get("name"),
-        "isAdmin": data.get("isAdmin", False),
+        "userEmail": user_email,
+        "userId": user_id,
+        "name": name,
+        "isAdmin": is_admin,
+        "isApiKey": is_api_key,
     })
-    logger.info("User %s logged in", data.get("userEmail"))
-    return JSONResponse({"ok": True, **{k: data.get(k) for k in ("userEmail","userId","name","isAdmin")}})
+    logger.info("User %s logged in (api_key=%s)", user_email, is_api_key)
+    return JSONResponse({"ok": True, "userEmail": user_email, "userId": user_id, "name": name, "isAdmin": is_admin})
 
 @app.post("/api/logout")
 async def api_logout(request: Request) -> dict:

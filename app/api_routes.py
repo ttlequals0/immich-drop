@@ -42,11 +42,13 @@ router = APIRouter(prefix="/api", tags=["api"])
 class UrlUploadRequest(BaseModel):
     url: str
     album_name: Optional[str] = None
+    invite_token: Optional[str] = None
 
 
 class UrlBatchUploadRequest(BaseModel):
     urls: List[str]
     album_name: Optional[str] = None
+    invite_token: Optional[str] = None
 
 
 class Base64UploadRequest(BaseModel):
@@ -54,6 +56,7 @@ class Base64UploadRequest(BaseModel):
     data: str  # base64-encoded file content
     filename: Optional[str] = None
     album_name: Optional[str] = None
+    invite_token: Optional[str] = None
 
 
 class UploadResult(BaseModel):
@@ -163,7 +166,7 @@ async def add_asset_to_album(
 # API Endpoints
 # ============================================================================
 
-def create_api_routes(config):
+def create_api_routes(config, authorize=None):
     """Factory function to create routes with config injection"""
 
     @router.get("/supported-platforms", response_model=SupportedPlatformsResponse)
@@ -191,6 +194,10 @@ def create_api_routes(config):
         Start async download from a supported URL.
         Returns a job ID immediately. Poll /api/upload/url/status/{job_id} for results.
         """
+        if authorize:
+            denied = await authorize(request, url_request.invite_token)
+            if denied:
+                return denied
         url = url_request.url.strip()
         if not url:
             raise HTTPException(status_code=400, detail="URL is required")
@@ -328,6 +335,10 @@ def create_api_routes(config):
 
         Max 10 URLs per request
         """
+        if authorize:
+            denied = await authorize(request, batch_request.invite_token)
+            if denied:
+                return denied
         urls = [u.strip() for u in batch_request.urls if u.strip()]
         httpx_client = request.app.state.httpx_client
 
@@ -412,12 +423,17 @@ def create_api_routes(config):
         request: Request,
         files: List[UploadFile] = File(...),
         album_name: Optional[str] = Form(None),
+        invite_token: Optional[str] = Form(None),
     ):
         """
         Batch upload files - designed for iOS Shortcuts
 
         POST multipart/form-data with one or more files
         """
+        if authorize:
+            denied = await authorize(request, invite_token)
+            if denied:
+                return denied
         httpx_client = request.app.state.httpx_client
 
         if not files:
@@ -465,10 +481,15 @@ def create_api_routes(config):
         request: Request,
         file: UploadFile = File(...),
         album_name: Optional[str] = Form(None),
+        invite_token: Optional[str] = Form(None),
     ):
         """
         Upload a single file - simpler endpoint for iOS Shortcuts
         """
+        if authorize:
+            denied = await authorize(request, invite_token)
+            if denied:
+                return denied
         httpx_client = request.app.state.httpx_client
         contents = await file.read()
         filename = file.filename or f"upload_{datetime.utcnow().timestamp()}"
@@ -503,6 +524,10 @@ def create_api_routes(config):
             "album_name": "Album Name" (optional)
         }
         """
+        if authorize:
+            denied = await authorize(request, upload_request.invite_token)
+            if denied:
+                return denied
         httpx_client = request.app.state.httpx_client
 
         # Decode base64 data
