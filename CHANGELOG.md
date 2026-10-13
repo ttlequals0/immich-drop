@@ -15,9 +15,9 @@ All notable changes to this project will be documented in this file.
   even when `PUBLIC_UPLOAD_PAGE_ENABLED=false`. With this set to true, each call
   must carry an admin session cookie or a valid `invite_token` (local invite or
   Immich Shared Link key). Because these routes have no later claim step, the
-  gate does the full invite check (disabled, password, expiry), counts each call
-  as one use, consumes a one-time invite on first use, and forces uploads into
-  the invite's album. The default stays open so existing iOS Shortcut setups
+  gate does the full invite check (disabled, password, expiry), counts each file
+  or URL as one use, consumes a one-time invite on first call, and forces
+  uploads into the invite's album by id. The default stays open so existing iOS Shortcut setups
   keep working.
 - Admin login with an Immich API key. Leave the email field blank and paste an
   API key as the password. immich-drop validates it against `GET /users/me` and

@@ -101,7 +101,7 @@ On failure:
 
 ### If API_UPLOAD_REQUIRE_AUTH is on
 
-When the server sets `API_UPLOAD_REQUIRE_AUTH=true`, upload calls need an invite token. Add `"invite_token": "<token>"` to the JSON body for `/api/upload/url`, `/api/upload/urls`, and `/api/upload/base64`, or send an `invite_token` form field for `/api/upload/batch` and `/api/upload/file`. The token can be a local invite token or an Immich Shared Link key. Use a multi-use invite without a password: each call counts as one use, a one-time invite stops working after the first call, and password-protected invites cannot be unlocked from a Shortcut. Uploads go to the invite's album. In the Shortcut, add the key to the Dictionary that builds the request body.
+When the server sets `API_UPLOAD_REQUIRE_AUTH=true`, upload calls need an invite token. Add `"invite_token": "<token>"` to the JSON body for `/api/upload/url`, `/api/upload/urls`, and `/api/upload/base64`, or send an `invite_token` form field for `/api/upload/batch` and `/api/upload/file`. The token can be a local invite token or an Immich Shared Link key. Use a multi-use invite without a password: each file or URL counts as one use, a one-time invite stops working after the first call, and password-protected invites cannot be unlocked from a Shortcut. Uploads go to the invite's album. In the Shortcut, add the key to the Dictionary that builds the request body.
 
 ---
 

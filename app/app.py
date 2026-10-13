@@ -931,12 +931,12 @@ async def precheck_upload_token(request: Request, invite_token: Optional[str]) -
     return None
 
 
-async def authorize_extension_api(request: Request, invite_token: Optional[str]) -> Optional[JSONResponse]:
+async def authorize_extension_api(request: Request, invite_token: Optional[str], uses: int = 1) -> Optional[JSONResponse]:
     """Gate for /api/upload/{url,urls,batch,file,base64}; open unless API_UPLOAD_REQUIRE_AUTH.
 
-    An invite token is consumed here (one call = one use) and pins the
-    target album via request.state.invite_album_name, since these routes
-    have no later claim step and upload with the server API key.
+    An invite token is consumed here (`uses` = items in the call) and pins
+    the target album via request.state.invite_album_id/_name, since these
+    routes have no later claim step and upload with the server API key.
     """
     if not SETTINGS.api_upload_require_auth:
         return None
@@ -948,7 +948,7 @@ async def authorize_extension_api(request: Request, invite_token: Optional[str])
         conn = db.connect()
         cur = conn.cursor()
         cur.execute(
-            "SELECT album_name, max_uses, COALESCE(used_count,0), expires_at, password_hash, COALESCE(disabled,0) FROM invites WHERE token = ?",
+            "SELECT album_id, album_name, max_uses, COALESCE(used_count,0), expires_at, password_hash, COALESCE(disabled,0) FROM invites WHERE token = ?",
             (invite_token,),
         )
         row = cur.fetchone()
@@ -957,13 +957,14 @@ async def authorize_extension_api(request: Request, invite_token: Optional[str])
         return JSONResponse({"error": "invite_lookup_failed"}, status_code=500)
     if not row:
         conn.close()
-        error, _album_id, album_name, _share_key = await check_immich_share_for_upload(request, invite_token)
+        error, album_id, album_name, _share_key = await check_immich_share_for_upload(request, invite_token)
         if error:
             _msg, error_key, http_status = error
             return JSONResponse({"error": error_key}, status_code=http_status)
+        request.state.invite_album_id = album_id
         request.state.invite_album_name = album_name
         return None
-    album_name, max_uses, used_count, expires_at, password_hash, disabled = row
+    album_id, album_name, max_uses, used_count, expires_at, password_hash, disabled = row
     if int(disabled or 0) == 1:
         conn.close()
         return JSONResponse({"error": "invite_disabled"}, status_code=403)
@@ -989,9 +990,9 @@ async def authorize_extension_api(request: Request, invite_token: Optional[str])
             error_key = "invite_claimed"
         else:
             cur.execute(
-                "UPDATE invites SET used_count = COALESCE(used_count,0) + 1 "
-                "WHERE token = ? AND (? < 0 OR COALESCE(used_count,0) < ?)",
-                (invite_token, max_uses_int, max_uses_int),
+                "UPDATE invites SET used_count = COALESCE(used_count,0) + ? "
+                "WHERE token = ? AND (? < 0 OR COALESCE(used_count,0) + ? <= ?)",
+                (uses, invite_token, max_uses_int, uses, max_uses_int),
             )
             error_key = "invite_exhausted"
         changed = cur.rowcount
@@ -1002,6 +1003,7 @@ async def authorize_extension_api(request: Request, invite_token: Optional[str])
         return JSONResponse({"error": "invite_claim_failed"}, status_code=500)
     if changed == 0:
         return JSONResponse({"error": error_key}, status_code=403)
+    request.state.invite_album_id = album_id
     request.state.invite_album_name = album_name
     return None
 

@@ -140,7 +140,7 @@ All variables are read once at startup. Restart the container after changing any
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `SOCIAL_MEDIA_UPLOADS_ENABLED` | `true` | When `false`, hides the URL-download UI. The API routes stay reachable; see `API_UPLOAD_REQUIRE_AUTH`. |
-| `API_UPLOAD_REQUIRE_AUTH` | `false` | When `true`, `POST /api/upload/url`, `/upload/urls`, `/upload/batch`, `/upload/file` and `/upload/base64` require an admin session cookie or a valid `invite_token` (JSON field, or form field for multipart). The token may be a local invite token or an Immich Shared Link key. Each call counts as one use of the invite, a one-time invite is consumed by the first call, uploads go to the invite's album, and a password-protected invite only works from a browser session that has already entered the password. Default is open so existing iOS Shortcut setups keep working. |
+| `API_UPLOAD_REQUIRE_AUTH` | `false` | When `true`, `POST /api/upload/url`, `/upload/urls`, `/upload/batch`, `/upload/file` and `/upload/base64` require an admin session cookie or a valid `invite_token` (JSON field, or form field for multipart). The token may be a local invite token or an Immich Shared Link key. Each file or URL in a call counts as one use of the invite, a one-time invite is consumed by the first call, uploads go to the invite's album, and a password-protected invite only works from a browser session that has already entered the password. Default is open so existing iOS Shortcut setups keep working. |
 | `GALLERY_DL_SLEEP_REQUEST` | `10-25` | Seconds between HTTP requests during extraction. |
 | `GALLERY_DL_SLEEP` | `5-15` | Seconds before each file download. |
 | `GALLERY_DL_TIMEOUT` | `300` | gallery-dl subprocess timeout in seconds. |
@@ -241,7 +241,7 @@ Upload media from a URL through the web UI or the API.
 | `/api/upload/base64` | POST | JSON `{data, filename?, album_name?}`; a `data:` URL prefix is accepted |
 | `/api/supported-platforms` | GET | Advisory platform list |
 
-All upload endpoints accept an optional `invite_token`. It is required when `API_UPLOAD_REQUIRE_AUTH=true`, and then each call consumes one use of the invite and uploads land in the invite's album regardless of `album_name`.
+All upload endpoints accept an optional `invite_token`. It is required when `API_UPLOAD_REQUIRE_AUTH=true`, and then each file or URL consumes one use of the invite and uploads land in the invite's album regardless of `album_name`.
 
 ---
 

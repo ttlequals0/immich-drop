@@ -146,15 +146,17 @@ async def upload_to_immich(
 
 async def add_asset_to_album(
     asset_id: str,
-    album_name: str,
+    album_name: Optional[str],
     config,
     httpx_client: httpx.AsyncClient,  # Shared httpx client
+    album_id: Optional[str] = None,
 ) -> bool:
-    """Add an asset to an album (creates album if needed)"""
+    """Add an asset to an album by id, or by name (creates album if needed)"""
     headers = {"x-api-key": config.immich_api_key}
-    album_id = await immich_client.find_or_create_album(
-        httpx_client, config.normalized_base_url, headers, album_name
-    )
+    if not album_id and album_name:
+        album_id = await immich_client.find_or_create_album(
+            httpx_client, config.normalized_base_url, headers, album_name
+        )
     if not album_id:
         return False
     return await immich_client.add_to_album(
@@ -210,10 +212,11 @@ def create_api_routes(config, authorize=None):
         )
 
         album_name = getattr(request.state, "invite_album_name", None) or url_request.album_name
+        album_id = getattr(request.state, "invite_album_id", None)
         job = create_job(url, album_name)
         httpx_client = request.app.state.httpx_client
 
-        asyncio.create_task(_process_url_job(job.id, url, album_name, platform, httpx_client))
+        asyncio.create_task(_process_url_job(job.id, url, album_name, platform, httpx_client, album_id))
 
         return JobResponse(job_id=job.id, status=job.status)
 
@@ -223,6 +226,7 @@ def create_api_routes(config, authorize=None):
         album_name: Optional[str],
         platform: Optional[str],
         httpx_client,
+        album_id: Optional[str] = None,
     ):
         """Background task: download media from URL and upload to Immich."""
         try:
@@ -274,8 +278,8 @@ def create_api_routes(config, authorize=None):
                     upload_result.platform = source_label
 
                     target_album = album_name or getattr(config, 'album_name', None)
-                    if target_album and upload_result.asset_id and upload_result.status == "success":
-                        await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client)
+                    if (album_id or target_album) and upload_result.asset_id and upload_result.status == "success":
+                        await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client, album_id=album_id)
 
                     if upload_result.status == "success":
                         total_uploaded += 1
@@ -336,11 +340,11 @@ def create_api_routes(config, authorize=None):
 
         Max 10 URLs per request
         """
+        urls = [u.strip() for u in batch_request.urls if u.strip()]
         if authorize:
-            denied = await authorize(request, batch_request.invite_token)
+            denied = await authorize(request, batch_request.invite_token, max(1, len(urls)))
             if denied:
                 return denied
-        urls = [u.strip() for u in batch_request.urls if u.strip()]
         httpx_client = request.app.state.httpx_client
 
         if not urls:
@@ -398,9 +402,10 @@ def create_api_routes(config, authorize=None):
                 upload_result.platform = source_label
 
                 # Add to album
+                album_id = getattr(request.state, "invite_album_id", None)
                 album_name = getattr(request.state, "invite_album_name", None) or batch_request.album_name or getattr(config, 'album_name', None)
-                if album_name and upload_result.asset_id and upload_result.status == "success":
-                    await add_asset_to_album(upload_result.asset_id, album_name, config, httpx_client)
+                if (album_id or album_name) and upload_result.asset_id and upload_result.status == "success":
+                    await add_asset_to_album(upload_result.asset_id, album_name, config, httpx_client, album_id=album_id)
 
                 results.append(upload_result)
 
@@ -432,7 +437,7 @@ def create_api_routes(config, authorize=None):
         POST multipart/form-data with one or more files
         """
         if authorize:
-            denied = await authorize(request, invite_token)
+            denied = await authorize(request, invite_token, max(1, len(files or [])))
             if denied:
                 return denied
         httpx_client = request.app.state.httpx_client
@@ -460,8 +465,9 @@ def create_api_routes(config, authorize=None):
 
             # Add to album
             target_album = getattr(request.state, "invite_album_name", None) or album_name or getattr(config, 'album_name', None)
-            if target_album and upload_result.asset_id and upload_result.status == "success":
-                await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client)
+            album_id = getattr(request.state, "invite_album_id", None)
+            if (album_id or target_album) and upload_result.asset_id and upload_result.status == "success":
+                await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client, album_id=album_id)
 
             results.append(upload_result)
 
@@ -505,8 +511,9 @@ def create_api_routes(config, authorize=None):
         )
 
         target_album = getattr(request.state, "invite_album_name", None) or album_name or getattr(config, 'album_name', None)
-        if target_album and upload_result.asset_id and upload_result.status == "success":
-            await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client)
+        album_id = getattr(request.state, "invite_album_id", None)
+        if (album_id or target_album) and upload_result.asset_id and upload_result.status == "success":
+            await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client, album_id=album_id)
 
         return upload_result
 
@@ -572,8 +579,9 @@ def create_api_routes(config, authorize=None):
         )
 
         target_album = getattr(request.state, "invite_album_name", None) or upload_request.album_name or getattr(config, 'album_name', None)
-        if target_album and upload_result.asset_id and upload_result.status == "success":
-            await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client)
+        album_id = getattr(request.state, "invite_album_id", None)
+        if (album_id or target_album) and upload_result.asset_id and upload_result.status == "success":
+            await add_asset_to_album(upload_result.asset_id, target_album, config, httpx_client, album_id=album_id)
 
         return upload_result
 
