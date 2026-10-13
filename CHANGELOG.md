@@ -2,6 +2,61 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.0] - 2026-10-13
+
+### Added
+- `TRUSTED_PROXY` (opt-in). When set, uvicorn starts with `proxy_headers=True`
+  and `forwarded_allow_ips` set to the value, so client IPs behind a reverse
+  proxy are logged correctly in upload events. Unset keeps today's behavior.
+  Ported from upstream PR Nasogaa/immich-drop#50 and the buildplan fork.
+- `API_UPLOAD_REQUIRE_AUTH` (opt-in, default false). The extension API
+  (`POST /api/upload/url`, `/urls`, `/batch`, `/file`, `/base64`) has always
+  been reachable without a login and uploads with the server `IMMICH_API_KEY`,
+  even when `PUBLIC_UPLOAD_PAGE_ENABLED=false`. With this set to true, each call
+  must carry an admin session cookie or a valid `invite_token` (local invite or
+  Immich Shared Link key). Because these routes have no later claim step, the
+  gate does the full invite check (disabled, password, expiry), counts each file
+  or URL as one use, consumes a one-time invite on first call, and forces
+  uploads into the invite's album by id (or no album, if the invite has none).
+  The default stays open so existing iOS Shortcut setups keep working.
+- Admin login with an Immich API key. Leave the email field blank and paste an
+  API key as the password. immich-drop validates it against `GET /users/me` and
+  uses it as `x-api-key` for that session. This covers Immich servers where
+  password login is disabled in favor of OIDC (#67). Ported from the buildplan
+  fork. The key needs user.read plus the scopes listed in the README.
+- Non-root user in the image (opt-in). The image now ships uid/gid 1000
+  (`appuser`) with `/data` owned by it, but it still starts as root by default.
+  Add `user: "1000:1000"` to the compose service to switch (#64). A bind-mounted
+  `/data` must be writable by that uid.
+- `CHUNK_SIZE_MB` accepts fractions, for example `0.9` to stay under nginx's
+  default 1m body limit. Ported from upstream PR Nasogaa/immich-drop#44.
+
+### Security
+- urllib3 2.7.0 -> 2.8.0 closes GHSA-8988-9cw3-xx77 (high: HTTPS proxy TLS
+  configuration could be ignored or overridden) and GHSA-gh4c-6fx4-qh6g (medium:
+  chunked deflate streaming could loop forever). These were the only open
+  Dependabot alerts.
+
+### Changed
+- Dockerfile: the pip cleanup step removed
+  `/usr/local/lib/python3.11/ensurepip`, a path that does not exist on the 3.14
+  image, so ensurepip was still shipped. The path now globs the installed minor
+  version.
+- README rewritten against the current code: full environment variable table,
+  API reference, corrected Immich v3 upload description, platform and cookie
+  lists, table of contents, and compose example. The stale "What's New v0.5.0"
+  section is replaced by a pointer to this file.
+
+### Dependencies
+- Dependency roll-up (dependabot #99 plus current releases): anyio 4.14.2 ->
+  4.15.1, charset-normalizer 3.5.1 -> 3.5.2, click 8.4.2 -> 8.5.0, fastapi
+  0.141.1 -> 0.143.0, httptools 0.8.0 -> 0.9.0, idna 3.19 -> 3.20, pydantic
+  2.13.4 -> 2.14.1, pydantic_core 2.46.4 -> 2.50.1, python-dotenv 1.2.3 ->
+  1.2.4, starlette 1.6.0 -> 1.7.0, uvicorn 0.52.4 -> 0.54.0, watchfiles 1.2.0 ->
+  1.3.0, websockets 17.0.1 -> 17.2, gallery-dl 1.32.9 -> 1.32.16 (supersedes #92
+  and #100). yt-dlp stays at 2026.8.19, which is current.
+
+
 ## [1.9.1] - 2026-08-25
 
 ### Fixed

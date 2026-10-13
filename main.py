@@ -13,4 +13,10 @@ if __name__ == "__main__":
         pass
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8080"))
-    uvicorn.run("app.app:app", host=host, port=port, reload=True)
+    kwargs = {"host": host, "port": port, "reload": True}
+    # Honor X-Forwarded-* only from these proxies (uvicorn forwarded_allow_ips syntax)
+    trusted_proxy = os.getenv("TRUSTED_PROXY")
+    if trusted_proxy:
+        kwargs["proxy_headers"] = True
+        kwargs["forwarded_allow_ips"] = trusted_proxy
+    uvicorn.run("app.app:app", **kwargs)

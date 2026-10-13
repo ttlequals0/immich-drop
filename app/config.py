@@ -22,7 +22,8 @@ class Settings:
     session_secret: str = ""
     log_level: str = "INFO"
     chunked_uploads_enabled: bool = False
-    chunk_size_mb: int = 95
+    chunk_size_mb: float = 95
+    api_upload_require_auth: bool = False
     gallery_dl_sleep_request: str = "10-25"
     gallery_dl_sleep: str = "5-15"
     gallery_dl_timeout: int = 300
@@ -58,9 +59,14 @@ def load_settings() -> Settings:
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     chunked_uploads_enabled = as_bool(os.getenv("CHUNKED_UPLOADS_ENABLED", "false"), False)
     try:
-        chunk_size_mb = int(os.getenv("CHUNK_SIZE_MB", "95"))
+        chunk_size_mb = float(os.getenv("CHUNK_SIZE_MB", "95"))
     except ValueError:
         chunk_size_mb = 95
+    if chunk_size_mb <= 0:
+        chunk_size_mb = 95
+    if float(chunk_size_mb).is_integer():
+        chunk_size_mb = int(chunk_size_mb)
+    api_upload_require_auth = as_bool(os.getenv("API_UPLOAD_REQUIRE_AUTH", "false"), False)
     gallery_dl_sleep_request = os.getenv("GALLERY_DL_SLEEP_REQUEST", "10-25")
     gallery_dl_sleep = os.getenv("GALLERY_DL_SLEEP", "5-15")
     try:
@@ -86,6 +92,7 @@ def load_settings() -> Settings:
         log_level=log_level,
         chunked_uploads_enabled=chunked_uploads_enabled,
         chunk_size_mb=chunk_size_mb,
+        api_upload_require_auth=api_upload_require_auth,
         gallery_dl_sleep_request=gallery_dl_sleep_request,
         gallery_dl_sleep=gallery_dl_sleep,
         gallery_dl_timeout=gallery_dl_timeout,

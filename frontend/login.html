@@ -34,13 +34,14 @@
     <div class="card">
       <h2 style="font-size:1rem;font-weight:600;margin-bottom:16px;">Sign in to your Immich account</h2>
       <div id="msg" class="banner hidden mb-3"></div>
+      <p class="text-sm mb-3">Sign in with your Immich email and password, or leave email blank and enter an Immich API key.</p>
       <form id="loginForm" autocomplete="on">
         <div class="form-group">
-          <label class="form-label" for="email">Email</label>
-          <input id="email" type="email" required class="input" autocomplete="email" />
+          <label class="form-label" for="email">Email (leave blank to sign in with an API key)</label>
+          <input id="email" type="text" class="input" autocomplete="email" />
         </div>
         <div class="form-group">
-          <label class="form-label" for="password">Password</label>
+          <label class="form-label" for="password">Password or API key</label>
           <input id="password" type="password" required class="input" autocomplete="current-password" />
         </div>
         <div class="flex items-center justify-between gap-2 mt-4">
