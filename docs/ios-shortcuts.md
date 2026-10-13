@@ -51,7 +51,7 @@ The script generates an unsigned plist and signs it with `shortcuts sign`. The s
 
 ### Why not build it by hand?
 
-`shortcuts sign` silently strips parameters from the plist. String comparisons, number comparisons, explicit HTTP bodies -- all gone after signing. The only way to get a working shortcut with conditional logic is to know which parameter formats survive and which don't. The script handles that. See `ios-shortcuts-plist-reference.md` for the full list of quirks.
+`shortcuts sign` silently strips parameters from the plist. String comparisons, number comparisons, explicit HTTP bodies: all gone after signing. The only way to get a working shortcut with conditional logic is to know which parameter formats survive and which don't. The script handles that. See `ios-shortcuts-plist-reference.md` for the full list of quirks.
 
 ---
 
@@ -99,13 +99,17 @@ On failure:
 {"job_id": "abc123", "status": "failed", "created_at": 1234567890.0, "error": "Error message"}
 ```
 
+### If API_UPLOAD_REQUIRE_AUTH is on
+
+When the server sets `API_UPLOAD_REQUIRE_AUTH=true`, upload calls need an invite token. Add `"invite_token": "<token>"` to the JSON body for `/api/upload/url`, `/api/upload/urls`, and `/api/upload/base64`, or send an `invite_token` form field for `/api/upload/batch` and `/api/upload/file`. The token can be a local invite token or an Immich Shared Link key. Use a multi-use invite without a password: each call counts as one use, a one-time invite stops working after the first call, and password-protected invites cannot be unlocked from a Shortcut. Uploads go to the invite's album. In the Shortcut, add the key to the Dictionary that builds the request body.
+
 ---
 
 ## Troubleshooting
 
 ### Shortcut shows "Upload failed"
 - Check server logs for the actual error
-- Reddit posts may fail with 429 (rate limited) -- wait a few minutes and retry
+- Reddit posts may fail with 429 (rate limited). Wait a few minutes and retry.
 - Instagram requires fresh cookies configured in the admin menu
 
 ### Shortcut keeps polling without completing
@@ -119,9 +123,9 @@ On failure:
 
 ### Instagram downloads slow
 - Anti-detection sleep delays (10-25 seconds between requests) are intentional
-- The async polling handles this -- the shortcut waits up to 90 seconds
+- The async polling handles this. The shortcut waits up to 90 seconds.
 
 ### Reddit image posts failing
 - Some Reddit image posts redirect through `reddit.com/media?url=` which gallery-dl and yt-dlp can't handle directly
 - Server v1.6.1+ extracts the embedded image URL automatically
-- If you see 429 errors, Reddit is rate-limiting you -- wait a few minutes
+- If you see 429 errors, Reddit is rate-limiting you. Wait a few minutes.
