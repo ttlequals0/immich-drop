@@ -31,7 +31,11 @@ RUN chmod -R 644 /immich_drop/*.py /immich_drop/app/*.py /immich_drop/frontend/*
     chmod 755 /immich_drop /immich_drop/app /immich_drop/frontend
 
 # Data dir for SQLite (state.db)
-RUN mkdir -p /data
+# Opt-in non-root: run with `user: "1000:1000"` in compose. Default stays root.
+RUN mkdir -p /data \
+    && addgroup -g 1000 appuser \
+    && adduser -D -u 1000 -G appuser -s /sbin/nologin appuser \
+    && chown -R appuser:appuser /data
 VOLUME ["/data"]
 
 # Defaults (can be overridden via compose env)
