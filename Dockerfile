@@ -21,7 +21,7 @@ COPY requirements.txt /immich_drop/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
     && pip install --no-cache-dir -r /immich_drop/requirements.txt \
     && pip uninstall -y pip \
-    && rm -rf /usr/local/lib/python3.11/ensurepip
+    && rm -rf /usr/local/lib/python3*/ensurepip
 
 # Copy app code
 COPY . /immich_drop
