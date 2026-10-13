@@ -961,6 +961,7 @@ async def authorize_extension_api(request: Request, invite_token: Optional[str],
         if error:
             _msg, error_key, http_status = error
             return JSONResponse({"error": error_key}, status_code=http_status)
+        request.state.invite_scoped = True
         request.state.invite_album_id = album_id
         request.state.invite_album_name = album_name
         return None
@@ -1003,6 +1004,7 @@ async def authorize_extension_api(request: Request, invite_token: Optional[str],
         return JSONResponse({"error": "invite_claim_failed"}, status_code=500)
     if changed == 0:
         return JSONResponse({"error": error_key}, status_code=403)
+    request.state.invite_scoped = True
     request.state.invite_album_id = album_id
     request.state.invite_album_name = album_name
     return None
@@ -1260,7 +1262,7 @@ async def api_login(request: Request) -> JSONResponse:
         "isAdmin": is_admin,
         "isApiKey": is_api_key,
     })
-    logger.info("User %s logged in (api_key=%s)", user_email, is_api_key)
+    logger.info("User %s logged in", email or "<api-key>")
     return JSONResponse({"ok": True, "userEmail": user_email, "userId": user_id, "name": name, "isAdmin": is_admin})
 
 @app.post("/api/logout")

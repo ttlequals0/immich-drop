@@ -17,7 +17,7 @@ All notable changes to this project will be documented in this file.
   Immich Shared Link key). Because these routes have no later claim step, the
   gate does the full invite check (disabled, password, expiry), counts each file
   or URL as one use, consumes a one-time invite on first call, and forces
-  uploads into the invite's album by id. The default stays open so existing iOS Shortcut setups
+  uploads into the invite's album by id (or no album, if the invite has none). The default stays open so existing iOS Shortcut setups
   keep working.
 - Admin login with an Immich API key. Leave the email field blank and paste an
   API key as the password. immich-drop validates it against `GET /users/me` and
