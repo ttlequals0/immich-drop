@@ -932,14 +932,78 @@ async def precheck_upload_token(request: Request, invite_token: Optional[str]) -
 
 
 async def authorize_extension_api(request: Request, invite_token: Optional[str]) -> Optional[JSONResponse]:
-    """Gate for /api/upload/{url,urls,batch,file,base64}; open unless API_UPLOAD_REQUIRE_AUTH."""
+    """Gate for /api/upload/{url,urls,batch,file,base64}; open unless API_UPLOAD_REQUIRE_AUTH.
+
+    An invite token is consumed here (one call = one use) and pins the
+    target album via request.state.invite_album_name, since these routes
+    have no later claim step and upload with the server API key.
+    """
     if not SETTINGS.api_upload_require_auth:
         return None
     if request.session.get("accessToken"):
         return None
-    if invite_token:
-        return await precheck_upload_token(request, invite_token)
-    return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not invite_token:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        conn = db.connect()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT album_name, max_uses, COALESCE(used_count,0), expires_at, password_hash, COALESCE(disabled,0) FROM invites WHERE token = ?",
+            (invite_token,),
+        )
+        row = cur.fetchone()
+    except Exception as e:
+        logger.exception("Invite lookup failed: %s", e)
+        return JSONResponse({"error": "invite_lookup_failed"}, status_code=500)
+    if not row:
+        conn.close()
+        error, _album_id, album_name, _share_key = await check_immich_share_for_upload(request, invite_token)
+        if error:
+            _msg, error_key, http_status = error
+            return JSONResponse({"error": error_key}, status_code=http_status)
+        request.state.invite_album_name = album_name
+        return None
+    album_name, max_uses, used_count, expires_at, password_hash, disabled = row
+    if int(disabled or 0) == 1:
+        conn.close()
+        return JSONResponse({"error": "invite_disabled"}, status_code=403)
+    if password_hash and not (request.session.get("inviteAuth") or {}).get(invite_token):
+        conn.close()
+        return JSONResponse({"error": "invite_password_required"}, status_code=403)
+    if expires_at:
+        with suppress(Exception):
+            if datetime.utcnow() > datetime.fromisoformat(expires_at):
+                conn.close()
+                return JSONResponse({"error": "invite_expired"}, status_code=403)
+    try:
+        max_uses_int = int(max_uses) if max_uses is not None else -1
+    except (TypeError, ValueError):
+        max_uses_int = -1
+    try:
+        if max_uses_int == 1:
+            cur.execute(
+                "UPDATE invites SET claimed = 1, claimed_at = CURRENT_TIMESTAMP, claimed_by_session = 'extension-api', used_count = 1 "
+                "WHERE token = ? AND COALESCE(claimed,0) = 0 AND COALESCE(used_count,0) = 0",
+                (invite_token,),
+            )
+            error_key = "invite_claimed"
+        else:
+            cur.execute(
+                "UPDATE invites SET used_count = COALESCE(used_count,0) + 1 "
+                "WHERE token = ? AND (? < 0 OR COALESCE(used_count,0) < ?)",
+                (invite_token, max_uses_int, max_uses_int),
+            )
+            error_key = "invite_exhausted"
+        changed = cur.rowcount
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.exception("Invite consume failed: %s", e)
+        return JSONResponse({"error": "invite_claim_failed"}, status_code=500)
+    if changed == 0:
+        return JSONResponse({"error": error_key}, status_code=403)
+    request.state.invite_album_name = album_name
+    return None
 
 
 # Include URL/batch upload routes
@@ -1157,7 +1221,7 @@ async def api_login(request: Request) -> JSONResponse:
             logger.exception("Login request failed: %s", e)
             return JSONResponse({"error": "login_failed"}, status_code=502)
         if r.status_code != 200:
-            logger.warning("API key auth rejected: %s - %s", r.status_code, r.text)
+            logger.warning("API key auth rejected: %s", r.status_code)
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         data = r.json() if r.content else {}
         token = password
