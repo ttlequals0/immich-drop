@@ -136,6 +136,15 @@ REDDIT_HOSTS = {
 }
 
 
+REDDIT_EMBED_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+)
+REDDIT_MEDIA_HOSTS = {"i.redd.it", "preview.redd.it", "packaged-media.redd.it", "v.redd.it"}
+REDDIT_EMBED_MAX_VIDEO = 500 * 1024 * 1024  # 500MB
+REDDIT_EMBED_MAX_IMAGE = 100 * 1024 * 1024  # 100MB
+
+
 def _is_reddit_host(hostname: Optional[str]) -> bool:
     return bool(hostname) and hostname.lower() in REDDIT_HOSTS
 
@@ -769,6 +778,176 @@ async def download_from_url(
         )
 
 
+def _reddit_media_host_ok(url: str) -> bool:
+    return (urlparse(url).hostname or "").lower() in REDDIT_MEDIA_HOSTS
+
+
+def parse_reddit_embed(html_text: str) -> list[dict]:
+    """Extract media items from a Reddit embed page (pure, no I/O)."""
+    import html as html_lib
+
+    # Video post: packaged MP4 permutations (with audio), pick the tallest
+    m = re.search(r'packaged-media-json="([^"]*)"', html_text)
+    if m:
+        try:
+            data = json.loads(html_lib.unescape(m.group(1)))
+            perms = (data.get("playbackMp4s") or {}).get("permutations") or []
+            best_url, best_h = None, -1
+            for perm in perms:
+                src = (perm or {}).get("source") or {}
+                u = src.get("url")
+                h = (src.get("dimensions") or {}).get("height") or 0
+                if u and _reddit_media_host_ok(u) and h > best_h:
+                    best_url, best_h = u, h
+            if best_url:
+                segs = [x for x in urlparse(best_url).path.split("/") if x]
+                if segs and re.fullmatch(r"[A-Za-z0-9_-]+", segs[0]):
+                    return [{"url": best_url, "kind": "video", "filename": f"{segs[0]}.mp4"}]
+        except (ValueError, AttributeError, TypeError):
+            pass
+
+    # Video post without MP4s: HLS/DASH playlist handled by yt-dlp
+    for pm in re.finditer(r'<shreddit-player(?:-2)?\b[^>]*?\ssrc="([^"]+)"', html_text):
+        u = html_lib.unescape(pm.group(1))
+        pu = urlparse(u)
+        if (pu.hostname or "").lower() == "v.redd.it" and pu.path.endswith((".m3u8", ".mpd")):
+            segs = [x for x in pu.path.split("/") if x]
+            if segs and re.fullmatch(r"[A-Za-z0-9_-]+", segs[0]):
+                return [{"url": u, "kind": "video", "filename": f"{segs[0]}.mp4", "hls": True}]
+
+    items: list[dict] = []
+    seen: set = set()
+
+    def _add(u: str):
+        if u in seen or not _reddit_media_host_ok(u):
+            return
+        seen.add(u)
+        items.append({"url": u, "kind": "image", "filename": os.path.basename(urlparse(u).path)})
+
+    if "<gallery-carousel" in html_text:
+        pages = []
+        for li in re.finditer(r'<li\b[^>]*\bslot="page-(\d+)"[^>]*>(.*?)</li>', html_text, re.S):
+            sm = re.search(r'\bsrc="([^"]+)"', li.group(2))
+            if sm:
+                pages.append((int(li.group(1)), html_lib.unescape(sm.group(1))))
+        for _, u in sorted(pages, key=lambda x: x[0]):
+            pu = urlparse(u)
+            host = (pu.hostname or "").lower()
+            if host == "preview.redd.it":
+                fm = re.search(r"-v0-([A-Za-z0-9_-]+)\.(jpe?g|png|gif|webp)$", pu.path, re.I)
+                if not fm:
+                    continue
+                u = f"https://i.redd.it/{fm.group(1)}.{fm.group(2).lower()}"
+            elif host != "i.redd.it":
+                continue
+            _add(u)
+        return items
+
+    text = html_lib.unescape(html_text)
+    for um in re.finditer(r"https://i\.redd\.it/[A-Za-z0-9_-]+\.(?:jpe?g|png|gif|webp)", text, re.I):
+        _add(um.group(0))
+    return items
+
+
+async def extract_via_reddit_embed(url: str, output_dir: str) -> Optional[List[DownloadResult]]:
+    """Fetch Reddit media via embed.reddit.com and the media CDNs. Never raises."""
+    try:
+        m = re.search(r"reddit\.com/(r|user|u)/([A-Za-z0-9_.-]+)/comments/([a-z0-9]+)", url)
+        if not m:
+            return None
+        kind = "user" if m.group(1) == "u" else m.group(1)
+        embed_url = f"https://embed.reddit.com/{kind}/{m.group(2)}/comments/{m.group(3)}/?embed=true"
+        page_headers = {
+            "User-Agent": REDDIT_EMBED_UA,
+            "Accept": "text/html,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=page_headers) as client:
+                resp = await client.get(embed_url)
+        except Exception as e:
+            logger.info("Reddit embed fetch failed for %s: %s", url, e)
+            return None
+        if resp.status_code != 200 or "blocked by network security" in resp.text:
+            logger.info("Reddit embed page unavailable for %s (HTTP %d)", url, resp.status_code)
+            return None
+
+        items = parse_reddit_embed(resp.text)
+        if not items:
+            logger.info("Reddit embed page has no media for %s", url)
+            return None
+
+        os.makedirs(output_dir, exist_ok=True)
+        results: List[DownloadResult] = []
+        for item in items:
+            try:
+                if item.get("hls"):
+                    res = await download_from_url(item["url"], output_dir)
+                    if res.success:
+                        results.append(res)
+                    else:
+                        logger.info("Reddit embed: HLS download failed: %s", res.error)
+                    continue
+                res = await _download_reddit_embed_file(item, url, output_dir)
+                if res:
+                    results.append(res)
+            except Exception as e:
+                logger.info("Reddit embed: item failed (%s): %s", item.get("filename"), e)
+        return results or None
+    except Exception as e:
+        logger.info("Reddit embed extraction error for %s: %s", url, e)
+        return None
+
+
+async def _download_reddit_embed_file(item: dict, post_url: str, output_dir: str) -> Optional[DownloadResult]:
+    limit = REDDIT_EMBED_MAX_VIDEO if item["kind"] == "video" else REDDIT_EMBED_MAX_IMAGE
+    filename = os.path.basename(item["filename"])
+    filepath = os.path.join(output_dir, filename)
+
+    async def _check_redirect(response):
+        if response.is_redirect:
+            err = _validate_url_target(response.headers.get("location", ""))
+            if err:
+                raise httpx.TooManyRedirects(f"Redirect blocked: {err}", request=response.request)
+
+    size = 0
+    head = b""
+    try:
+        async with httpx.AsyncClient(
+            timeout=60, follow_redirects=True, headers={"User-Agent": REDDIT_EMBED_UA},
+            event_hooks={"response": [_check_redirect]},
+        ) as client:
+            async with client.stream("GET", item["url"]) as resp:
+                if resp.status_code != 200:
+                    logger.info("Reddit embed: HTTP %d for %s", resp.status_code, item["url"])
+                    return None
+                with open(filepath, "wb") as f:
+                    async for chunk in resp.aiter_bytes():
+                        if not head:
+                            head = chunk[:64]
+                        size += len(chunk)
+                        if size > limit:
+                            raise ValueError(f"file exceeds {limit} bytes")
+                        f.write(chunk)
+    except Exception as e:
+        logger.info("Reddit embed: download failed for %s: %s", item["url"], e)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        return None
+
+    ext = os.path.splitext(filename)[1].lower()
+    detected_ext, detected_mime = detect_file_type(head)
+    content_type = detected_mime or CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
+    logger.info("Reddit embed: downloaded %s (%d bytes)", filename, size)
+    return DownloadResult(
+        success=True,
+        filepath=filepath,
+        filename=filename,
+        content_type=content_type,
+        metadata={"source": "reddit_embed", "post_url": post_url},
+    )
+
+
 async def download_multiple_urls(
     urls: List[str],
     output_dir: Optional[str] = None,
@@ -889,6 +1068,13 @@ async def download_from_url_multi(
         return [result]
 
     platform = identify_platform(url)
+
+    # Reddit blocks JSON endpoints; the embed page still serves post markup
+    if platform == "reddit" and "/comments/" in url:
+        results = await extract_via_reddit_embed(url, output_dir)
+        if results:
+            return results
+        logger.info("Reddit embed extraction found nothing for %s, falling back", url)
 
     # 2. gallery-dl for image-heavy platforms (and any unrecognized-but-supported)
     if platform in GALLERY_DL_PLATFORMS or (platform and platform not in YTDLP_PLATFORMS):
