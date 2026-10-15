@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.2] - 2026-10-15
+
+### Fixed
+- Reddit downloads work again without any API credentials. Posts are read from
+  Reddit's embed pages (embed.reddit.com), which still serve the post markup,
+  and media is fetched straight from i.redd.it and packaged-media.redd.it.
+  Covers videos (highest available MP4 with audio), single images and
+  galleries. gallery-dl and yt-dlp remain as fallbacks when the embed page
+  has no media.
+
 ## [1.10.1] - 2026-10-15
 
 ### Added

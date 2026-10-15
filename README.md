@@ -226,6 +226,7 @@ Upload media from a URL through the web UI or the API.
 **Routing:**
 
 - yt-dlp handles YouTube, TikTok, and Facebook.
+- Reddit posts go through Reddit's embed page first, with gallery-dl and yt-dlp as fallbacks.
 - gallery-dl handles everything else.
 - Direct image URLs are fetched separately, capped at 100 MB.
 - `GET /api/supported-platforms` is advisory only. Any URL is attempted.
@@ -248,7 +249,11 @@ All upload endpoints accept an optional `invite_token`. It is required when `API
 
 ### Reddit API credentials
 
-Since early October 2026 Reddit answers the public JSON endpoints with a "blocked by network security" page unless the request comes from a real browser session. gallery-dl and yt-dlp both use those endpoints by default, so Reddit downloads fail with that message or with yt-dlp's "Your IP address is unable to access the Reddit API". Platform cookies do not help. gallery-dl can use Reddit's OAuth API instead when you give it your own app credentials.
+Reddit downloads do not need credentials. Since 1.10.2 the app reads the post from Reddit's embed page and downloads the media straight from Reddit's CDN, which covers videos, single images and galleries. gallery-dl and yt-dlp remain as fallbacks.
+
+Reddit blocks its public JSON endpoints for non-browser clients, and that is what gallery-dl and yt-dlp use. Those fallbacks only help for content the embed page does not expose. Platform cookies do not help.
+
+If you have a Reddit app approved under Reddit's Responsible Builder Policy, you can still give gallery-dl its credentials:
 
 1. Log in to Reddit and open https://www.reddit.com/prefs/apps.
 2. Click "create another app", choose "installed app", set the redirect uri to http://localhost:6414/, and create it.
