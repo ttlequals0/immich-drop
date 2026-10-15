@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.1] - 2026-10-15
+
+### Added
+- `GALLERY_DL_REDDIT_CLIENT_ID`, `GALLERY_DL_REDDIT_REFRESH_TOKEN`,
+  `GALLERY_DL_REDDIT_USER_AGENT` (opt-in). With the client id set, gallery-dl
+  reaches Reddit through the OAuth API at oauth.reddit.com using the operator's
+  own app credentials. Reddit started blocking the public JSON endpoints for
+  non-browser clients around 2026-10-09 (mikf/gallery-dl#9807,
+  yt-dlp/yt-dlp#17775). Unset keeps the current REST behavior. The refresh
+  token is redacted from the logged command line.
+
+### Changed
+- README: new "Reddit API credentials" subsection with setup steps.
+
 ## [1.10.0] - 2026-10-13
 
 ### Added

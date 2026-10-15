@@ -426,12 +426,25 @@ async def extract_via_gallery_dl(
         if settings.gallery_dl_sleep:
             cmd.extend(["--sleep", settings.gallery_dl_sleep])
 
+    if platform == "reddit" and settings and settings.gallery_dl_reddit_client_id:
+        cmd.extend(["-o", f"extractor.reddit.client-id={settings.gallery_dl_reddit_client_id}"])
+        if settings.gallery_dl_reddit_refresh_token:
+            cmd.extend(["-o", f"extractor.reddit.refresh-token={settings.gallery_dl_reddit_refresh_token}"])
+        if settings.gallery_dl_reddit_user_agent:
+            cmd.extend(["-o", f"extractor.reddit.user-agent-oauth={settings.gallery_dl_reddit_user_agent}"])
+
     if cookies_file and os.path.exists(cookies_file):
         cmd.extend(["--cookies", cookies_file])
 
     cmd.append(url)
 
-    logger.info("gallery-dl command: %s", " ".join(cmd))
+    # Never log the Reddit refresh token
+    log_cmd = [
+        "extractor.reddit.refresh-token=<redacted>"
+        if c.startswith("extractor.reddit.refresh-token=") else c
+        for c in cmd
+    ]
+    logger.info("gallery-dl command: %s", " ".join(log_cmd))
 
     try:
         process = await asyncio.create_subprocess_exec(
