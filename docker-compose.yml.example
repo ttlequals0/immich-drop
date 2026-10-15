@@ -26,6 +26,10 @@ services:
       GALLERY_DL_SLEEP: "5-15"
       GALLERY_DL_TIMEOUT: 300
       DOWNLOAD_CONCURRENCY: 1
+      # Reddit OAuth API credentials (opt-in, see README "Reddit API credentials")
+      # GALLERY_DL_REDDIT_CLIENT_ID: ""
+      # GALLERY_DL_REDDIT_REFRESH_TOKEN: ""
+      # GALLERY_DL_REDDIT_USER_AGENT: "Python:immich-drop:v1.0 (by /u/yourname)"
       INSTAGRAM_YTDLP_FALLBACK: false
       # Reverse proxy: trust forwarded headers only from these addresses
       # TRUSTED_PROXY: 172.16.0.0/12

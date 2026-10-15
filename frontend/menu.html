@@ -98,6 +98,23 @@
       </div>
     </section>
 
+    <!-- Reddit API credentials -->
+    <section class="card">
+      <div class="card-header"><h2>Reddit API credentials</h2></div>
+      <p class="text-sm text-secondary mb-3">Reddit blocks the public JSON endpoints for non-browser clients. Enter your own Reddit app credentials and gallery-dl will use the OAuth API instead. Values saved here take effect on the next download and override the GALLERY_DL_REDDIT_* environment variables. See the README section Reddit API credentials for setup.</p>
+      <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;align-items:end;">
+        <div><label class="form-label">Client ID</label><input id="redditClientId" type="text" class="input" placeholder="client id from reddit.com/prefs/apps" autocomplete="off"></div>
+        <div><label class="form-label">Refresh Token</label><input id="redditRefreshToken" type="password" class="input" placeholder="leave blank to keep the saved token" autocomplete="new-password"></div>
+        <div><label class="form-label">User Agent</label><input id="redditUserAgent" type="text" class="input" placeholder="Python:immich-drop:v1.0 (by /u/yourname)" autocomplete="off"></div>
+      </div>
+      <div class="flex items-center gap-2 mt-3">
+        <button id="btnSaveReddit" class="btn btn--primary">Save</button>
+        <button id="btnClearReddit" class="btn">Clear</button>
+      </div>
+      <div id="redditStatus" class="text-sm text-secondary mt-2"></div>
+      <div id="redditResult" class="banner hidden mt-3"></div>
+    </section>
+
     <div class="text-xs text-tertiary" style="margin-bottom:12px;">If album listing or creation is forbidden by your token, specify a fixed album in the .env file as IMMICH_ALBUM_NAME.</div>
     <footer class="site-footer"><a id="version-link" href="https://github.com/ttlequals0/immich-drop" target="_blank" rel="noopener">immich-drop</a></footer>
   </div>

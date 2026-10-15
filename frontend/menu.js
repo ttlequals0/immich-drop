@@ -468,6 +468,73 @@
   btnRefreshCookies.onclick = loadCookies;
   loadCookies();
 
+  var redditClientId = document.getElementById('redditClientId');
+  var redditRefreshToken = document.getElementById('redditRefreshToken');
+  var redditUserAgent = document.getElementById('redditUserAgent');
+  var btnSaveReddit = document.getElementById('btnSaveReddit');
+  var btnClearReddit = document.getElementById('btnClearReddit');
+  var redditStatus = document.getElementById('redditStatus');
+  var redditResult = document.getElementById('redditResult');
+
+  function showRedditResult(kind, text) {
+    if (!redditResult) return;
+    redditResult.className = 'banner mt-3 ' + (kind === 'ok' ? 'banner--ok' : 'banner--err');
+    redditResult.textContent = text;
+    redditResult.classList.remove('hidden');
+    setTimeout(function(){ redditResult.classList.add('hidden'); }, 3000);
+  }
+
+  function renderRedditSettings(j) {
+    if (redditClientId) redditClientId.value = j.client_id || '';
+    if (redditUserAgent) redditUserAgent.value = j.user_agent || '';
+    if (redditRefreshToken) redditRefreshToken.value = '';
+    if (!redditStatus) return;
+    var label = { menu: 'Using credentials saved here', env: 'Using credentials from environment variables' }[j.source] || 'Not configured';
+    if (j.source !== 'none') label += j.has_refresh_token ? ' (refresh token set)' : ' (no refresh token)';
+    redditStatus.textContent = label;
+  }
+
+  async function loadRedditSettings() {
+    if (!redditStatus) return;
+    try {
+      var r = await fetch('/api/settings/reddit');
+      if (!r.ok) throw new Error('Load failed');
+      renderRedditSettings(await r.json());
+    } catch (e) { redditStatus.textContent = 'Could not load Reddit settings'; }
+  }
+
+  if (btnSaveReddit) btnSaveReddit.onclick = async function(){
+    var clientId = redditClientId.value.trim();
+    if (!clientId) { showRedditResult('err', 'Please enter a client id'); return; }
+    try {
+      var r = await fetch('/api/settings/reddit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          client_id: clientId,
+          refresh_token: redditRefreshToken.value.trim(),
+          user_agent: redditUserAgent.value.trim()
+        })
+      });
+      var j = await r.json().catch(function(){ return {}; });
+      if (!r.ok) { showRedditResult('err', j.error || 'Save failed'); return; }
+      showRedditResult('ok', 'Saved Reddit credentials');
+      renderRedditSettings(j);
+    } catch (e) { showRedditResult('err', String(e.message || e)); }
+  };
+
+  if (btnClearReddit) btnClearReddit.onclick = async function(){
+    if (!confirm('Clear the saved Reddit credentials?')) return;
+    try {
+      var r = await fetch('/api/settings/reddit', { method: 'DELETE' });
+      if (!r.ok) throw new Error('Clear failed');
+      showRedditResult('ok', 'Cleared saved Reddit credentials');
+      renderRedditSettings(await r.json());
+    } catch (e) { showRedditResult('err', String(e.message || e)); }
+  };
+
+  loadRedditSettings();
+
   fetch('/api/config')
     .then(function(r){ return r.json(); })
     .then(function(data){

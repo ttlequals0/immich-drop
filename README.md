@@ -144,6 +144,9 @@ All variables are read once at startup. Restart the container after changing any
 | `GALLERY_DL_SLEEP_REQUEST` | `10-25` | Seconds between HTTP requests during extraction. |
 | `GALLERY_DL_SLEEP` | `5-15` | Seconds before each file download. |
 | `GALLERY_DL_TIMEOUT` | `300` | gallery-dl subprocess timeout in seconds. |
+| `GALLERY_DL_REDDIT_CLIENT_ID` | unset | Client id of your own Reddit app. When set, gallery-dl uses the OAuth API for Reddit. See "Reddit API credentials". Overridden by values saved in the admin menu. |
+| `GALLERY_DL_REDDIT_REFRESH_TOKEN` | unset | Refresh token for that app from `gallery-dl oauth:reddit`. Optional; without it gallery-dl requests an anonymous app token. |
+| `GALLERY_DL_REDDIT_USER_AGENT` | unset | User agent sent with OAuth requests, in Reddit's required format `Python:<app name>:v1.0 (by /u/<username>)`. |
 | `DOWNLOAD_CONCURRENCY` | `1` | Concurrent URL downloads in batch mode. |
 | `INSTAGRAM_YTDLP_FALLBACK` | `false` | yt-dlp fallback for Instagram is blocked by default to reduce detection risk. |
 
@@ -243,6 +246,18 @@ Upload media from a URL through the web UI or the API.
 
 All upload endpoints accept an optional `invite_token`. It is required when `API_UPLOAD_REQUIRE_AUTH=true`. Each file or URL then consumes one use of the invite, and uploads land in the invite's album (or no album if the invite has none). `album_name` is ignored.
 
+### Reddit API credentials
+
+Since early October 2026 Reddit answers the public JSON endpoints with a "blocked by network security" page unless the request comes from a real browser session. gallery-dl and yt-dlp both use those endpoints by default, so Reddit downloads fail with that message or with yt-dlp's "Your IP address is unable to access the Reddit API". Platform cookies do not help. gallery-dl can use Reddit's OAuth API instead when you give it your own app credentials.
+
+1. Log in to Reddit and open https://www.reddit.com/prefs/apps.
+2. Click "create another app", choose "installed app", set the redirect uri to http://localhost:6414/, and create it.
+3. Copy the client id shown under the app name (the short string, not the secret).
+4. On a desktop with gallery-dl installed, run `gallery-dl -o extractor.reddit.client-id=<client id> oauth:reddit`, approve in the browser, and copy the refresh token it prints.
+5. Open the admin menu, scroll to Reddit API credentials, paste the three values and click Save. They apply to the next Reddit download, no restart needed. The `GALLERY_DL_REDDIT_*` environment variables do the same job at startup, and values saved in the menu win over them.
+
+The user agent must follow Reddit's API rules, for example `Python:immich-drop:v1.0 (by /u/yourname)`. The refresh token is a credential. It reaches gallery-dl through a 0600 config file in the job's temporary directory that is deleted as soon as gallery-dl exits, so it never appears on the command line or in the log. With a refresh token Reddit rate limits the app to 600 requests per 10 minutes. yt-dlp has no OAuth mode, so the yt-dlp fallback for Reddit keeps using the public endpoints.
+
 ---
 
 ## Platform Cookies
@@ -268,6 +283,9 @@ Some platforms need a logged-in session for certain content (Instagram Reels, pr
 | `/api/cookies` | GET | List cookies. Values are masked to a 40-character preview. |
 | `/api/cookies` | POST | Create or update a platform cookie |
 | `/api/cookies/{platform}` | DELETE | Delete a platform cookie |
+| `/api/settings/reddit` | GET | Reddit OAuth credential status, never the token (login required) |
+| `/api/settings/reddit` | POST | Save Reddit OAuth credentials (login required) |
+| `/api/settings/reddit` | DELETE | Clear saved Reddit OAuth credentials (login required) |
 
 An unsupported platform returns 400 `unsupported_platform`.
 

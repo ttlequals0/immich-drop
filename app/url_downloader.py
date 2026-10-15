@@ -23,6 +23,7 @@ import json
 
 import httpx
 
+from .db import get_app_settings
 from .utils import detect_file_type
 
 if TYPE_CHECKING:
@@ -398,6 +399,33 @@ CONTENT_TYPE_MAP = {
 }
 
 
+REDDIT_SETTING_KEYS = ("reddit_client_id", "reddit_refresh_token", "reddit_user_agent")
+
+
+def resolve_reddit_credentials(settings: Settings) -> Optional[dict]:
+    """Reddit OAuth options for gallery-dl: admin menu values first, then env."""
+    stored = get_app_settings(settings.state_db, list(REDDIT_SETTING_KEYS))
+    if stored.get("reddit_client_id"):
+        client_id = stored["reddit_client_id"]
+        token = stored.get("reddit_refresh_token", "")
+        agent = stored.get("reddit_user_agent", "")
+        source = "menu"
+    elif settings.gallery_dl_reddit_client_id:
+        client_id = settings.gallery_dl_reddit_client_id
+        token = settings.gallery_dl_reddit_refresh_token
+        agent = settings.gallery_dl_reddit_user_agent
+        source = "env"
+    else:
+        return None
+    creds = {"client-id": client_id}
+    if token:
+        creds["refresh-token"] = token
+    if agent:
+        creds["user-agent-oauth"] = agent
+    creds["source"] = source
+    return creds
+
+
 async def extract_via_gallery_dl(
     url: str,
     output_dir: str,
@@ -425,6 +453,18 @@ async def extract_via_gallery_dl(
             cmd.extend(["--sleep-request", settings.gallery_dl_sleep_request])
         if settings.gallery_dl_sleep:
             cmd.extend(["--sleep", settings.gallery_dl_sleep])
+
+    config_path = None
+    if platform == "reddit" and settings:
+        creds = resolve_reddit_credentials(settings)
+        if creds:
+            # Config file keeps the token out of the process list
+            config_path = os.path.join(output_dir, "gallery-dl.json")
+            fd = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump({"extractor": {"reddit": {k: v for k, v in creds.items() if k != "source"}}}, f)
+            cmd.extend(["-c", config_path])
+            logger.info("Reddit OAuth credentials from %s", creds["source"])
 
     if cookies_file and os.path.exists(cookies_file):
         cmd.extend(["--cookies", cookies_file])
@@ -527,6 +567,12 @@ async def extract_via_gallery_dl(
     except Exception as e:
         logger.error("gallery-dl error for %s: %s", url, e)
         return None
+    finally:
+        if config_path:
+            try:
+                os.remove(config_path)
+            except OSError:
+                pass
 
 
 async def download_from_url(

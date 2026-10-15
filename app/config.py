@@ -27,6 +27,9 @@ class Settings:
     gallery_dl_sleep_request: str = "10-25"
     gallery_dl_sleep: str = "5-15"
     gallery_dl_timeout: int = 300
+    gallery_dl_reddit_client_id: str = ""
+    gallery_dl_reddit_refresh_token: str = ""
+    gallery_dl_reddit_user_agent: str = ""
     download_concurrency: int = 1
     instagram_ytdlp_fallback: bool = False
     social_media_uploads: bool = True
@@ -69,6 +72,9 @@ def load_settings() -> Settings:
     api_upload_require_auth = as_bool(os.getenv("API_UPLOAD_REQUIRE_AUTH", "false"), False)
     gallery_dl_sleep_request = os.getenv("GALLERY_DL_SLEEP_REQUEST", "10-25")
     gallery_dl_sleep = os.getenv("GALLERY_DL_SLEEP", "5-15")
+    gallery_dl_reddit_client_id = os.getenv("GALLERY_DL_REDDIT_CLIENT_ID", "").strip()
+    gallery_dl_reddit_refresh_token = os.getenv("GALLERY_DL_REDDIT_REFRESH_TOKEN", "").strip()
+    gallery_dl_reddit_user_agent = os.getenv("GALLERY_DL_REDDIT_USER_AGENT", "").strip()
     try:
         gallery_dl_timeout = int(os.getenv("GALLERY_DL_TIMEOUT", "300"))
     except ValueError:
@@ -96,6 +102,9 @@ def load_settings() -> Settings:
         gallery_dl_sleep_request=gallery_dl_sleep_request,
         gallery_dl_sleep=gallery_dl_sleep,
         gallery_dl_timeout=gallery_dl_timeout,
+        gallery_dl_reddit_client_id=gallery_dl_reddit_client_id,
+        gallery_dl_reddit_refresh_token=gallery_dl_reddit_refresh_token,
+        gallery_dl_reddit_user_agent=gallery_dl_reddit_user_agent,
         download_concurrency=download_concurrency,
         instagram_ytdlp_fallback=instagram_ytdlp_fallback,
         social_media_uploads=social_media_uploads,
