@@ -10,8 +10,13 @@ All notable changes to this project will be documented in this file.
   reaches Reddit through the OAuth API at oauth.reddit.com using the operator's
   own app credentials. Reddit started blocking the public JSON endpoints for
   non-browser clients around 2026-10-09 (mikf/gallery-dl#9807,
-  yt-dlp/yt-dlp#17775). Unset keeps the current REST behavior. The refresh
-  token is redacted from the logged command line.
+  yt-dlp/yt-dlp#17775). Unset keeps the current REST behavior.
+- The same credentials can be saved from the admin menu (new `app_settings`
+  table, endpoints `GET/POST/DELETE /api/settings/reddit`). Values saved in the
+  menu override the environment variables.
+- The credentials are passed to gallery-dl through a 0600 config file in the
+  job temp dir instead of the command line, so the refresh token never shows in
+  the process list or the log. The file is deleted when gallery-dl exits.
 
 ### Changed
 - README: new "Reddit API credentials" subsection with setup steps.

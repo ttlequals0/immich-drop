@@ -1913,3 +1913,78 @@ async def api_cookies_delete(request: Request, platform: str) -> JSONResponse:
     if deleted:
         return JSONResponse({"ok": True, "deleted": platform})
     return JSONResponse({"error": "not_found"}, status_code=404)
+
+# ---------- Reddit API credentials ----------
+
+from .db import get_app_settings, set_app_settings, delete_app_settings
+from .url_downloader import REDDIT_SETTING_KEYS
+
+def _reddit_settings_payload() -> dict:
+    stored = get_app_settings(SETTINGS.state_db, list(REDDIT_SETTING_KEYS))
+    env_configured = bool(SETTINGS.gallery_dl_reddit_client_id)
+    if stored.get("reddit_client_id"):
+        source = "menu"
+        client_id, agent = stored["reddit_client_id"], stored.get("reddit_user_agent", "")
+        has_token = bool(stored.get("reddit_refresh_token"))
+    elif env_configured:
+        source = "env"
+        client_id = SETTINGS.gallery_dl_reddit_client_id
+        agent = SETTINGS.gallery_dl_reddit_user_agent
+        has_token = bool(SETTINGS.gallery_dl_reddit_refresh_token)
+    else:
+        source, client_id, agent, has_token = "none", "", "", False
+    return {
+        "client_id": client_id,
+        "user_agent": agent,
+        "has_refresh_token": has_token,
+        "source": source,
+        "env_configured": env_configured,
+    }
+
+@app.get("/api/settings/reddit")
+async def api_reddit_settings_get(request: Request) -> JSONResponse:
+    """Reddit OAuth credential status (never the token). Requires admin login."""
+    if not request.session.get("accessToken"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return JSONResponse(_reddit_settings_payload())
+
+@app.post("/api/settings/reddit")
+async def api_reddit_settings_set(request: Request) -> JSONResponse:
+    """Save Reddit OAuth credentials. Requires admin login."""
+    if not request.session.get("accessToken"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid_json"}, status_code=400)
+    body = body if isinstance(body, dict) else {}
+    client_id = str(body.get("client_id") or "").strip()
+    refresh_token = str(body.get("refresh_token") or "").strip()
+    user_agent = str(body.get("user_agent") or "").strip()
+    if not client_id:
+        return JSONResponse({"error": "missing_client_id"}, status_code=400)
+    if not refresh_token:
+        stored = get_app_settings(SETTINGS.state_db, ["reddit_refresh_token"])
+        refresh_token = stored.get("reddit_refresh_token", "")
+    try:
+        set_app_settings(SETTINGS.state_db, {
+            "reddit_client_id": client_id,
+            "reddit_refresh_token": refresh_token,
+            "reddit_user_agent": user_agent,
+        })
+    except Exception:
+        logger.exception("Failed to save Reddit settings")
+        return JSONResponse({"error": "save_failed"}, status_code=500)
+    return JSONResponse(_reddit_settings_payload())
+
+@app.delete("/api/settings/reddit")
+async def api_reddit_settings_delete(request: Request) -> JSONResponse:
+    """Remove saved Reddit OAuth credentials. Requires admin login."""
+    if not request.session.get("accessToken"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        delete_app_settings(SETTINGS.state_db, list(REDDIT_SETTING_KEYS))
+    except Exception:
+        logger.exception("Failed to delete Reddit settings")
+        return JSONResponse({"error": "delete_failed"}, status_code=500)
+    return JSONResponse(_reddit_settings_payload())
