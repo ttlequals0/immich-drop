@@ -40,4 +40,5 @@ state.db
 
 # Claude AI config
 CLAUDE.md
+AGENTS.md
 docs/superpowers/
